@@ -1,0 +1,19 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "make run",
+            "type": "node-terminal",
+            "request": "launch",
+            "command": "make run",
+            "cwd": "${workspaceFolder}/.."
+        },
+        {
+            "name": "make debug",
+            "type": "node-terminal",
+            "request": "launch",
+            "command": "make test",
+            "cwd": "${workspaceFolder}/.."
+        }
+    ]
+}
