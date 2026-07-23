@@ -1,0 +1,22 @@
+# Build artifacts
+disk.img
+kernel.elf
+maram.iso
+iso-root/
+build/
+
+# Kernel (Rust)
+kernel/target/
+
+# Tool (Rust)
+tools/lemoncc/target/
+
+# Userspace binaries
+userspace/*.elf
+
+# Test output
+serial.out
+serial.clean
+
+# IDE
+.vscode/
