@@ -32,8 +32,6 @@ mod scheduling;
 mod syscalls;
 mod gpt;
 
-
-
 #[cfg(feature = "integration-test")]
 mod tests;
 
@@ -50,12 +48,13 @@ unsafe extern "C" fn kmain() -> ! {
 
     log_success!("Kernel ready");
 
+    #[cfg(feature = "integration-test")]
+    tests::run_all();
+
     if let Ok(binary) = loader::load_bin("/bin.elf") {
         log_success!("Found user binary");
         scheduling::add_task(binary);
-    } else {
-        warn!("No user binary found");
-    }
+    } else { warn!("No user binary found") }
 
     halt_loop()
 }
@@ -66,8 +65,11 @@ fn halt_loop() -> ! {
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
+    ipi::halt_other_cpus();
+
+    
+
     panic_println!("Panic!");
     panic_println!("{}", info);
-    ipi::halt_other_cpus();
     halt_loop();
 }

@@ -195,7 +195,6 @@ pub fn init_drive(device: &'static PCIFunction) -> Result<Box<dyn StorageDrive>,
 }
 
 pub fn init_storage() -> Vec<Drive> {
-    println!("Hello");
     let mut drives = Vec::new();
     for device in super::pci::find_devices(|dev| dev.class() == 1) {
         if let Ok(drive) = init_drive(device) { drives.push(Drive {

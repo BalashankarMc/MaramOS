@@ -1,7 +1,16 @@
 #include "syscalls.h"
 
-int main() {
-    char str[22] = "Hello, World! From C!\0";
+__attribute__((constructor))
+static void ctor(void) {
+    sys_print("Constructor: before main\n");
+}
 
-    return sys_print(str);
+__attribute__((destructor))
+static void dtor(void) {
+    sys_print("Destructor: after main\n");
+}
+
+int main(void) {
+    sys_print("Main: running\n");
+    return 0;
 }

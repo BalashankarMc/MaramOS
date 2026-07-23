@@ -159,6 +159,8 @@ extern "x86-interrupt" fn ipifunc_handler(_sf: InterruptStackFrame) {
 /// IPI halt handler — puts this CPU into an infinite HLT loop.
 extern "x86-interrupt" fn ipihalt_handler(_sf: InterruptStackFrame) {
     crate::acpi::lapic_eoi();
+    unsafe { (*my_data()).ack.store(true, Ordering::SeqCst); }
+
     halt_loop()
 }
 
@@ -240,7 +242,7 @@ pub fn tlb_shootdown(addr: VirtAddr) {
 /// Halt all other CPUs (for panic propagation)
 pub fn halt_other_cpus() {
     if MP_DATA.cpus().len() <= 1 { return }
-    if IPI_DATA.try_get().is_none() { return}
+    if IPI_DATA.try_get().is_none() { return }
 
     send_ipi(
         IPI_HALT,
@@ -248,6 +250,22 @@ pub fn halt_other_cpus() {
         IcrDestinationShorthand::AllExcludingSelf,
         IcrDeliveryMode::Fixed,
     );
+
+
+    wait_for_idle();
+
+    // 3. Wait for acks with timeout
+    for cpu in MP_DATA.cpus().iter() {
+        if cpu.lapic_id == crate::acpi::lapic_id() { continue }
+        let d = data_mut(cpu.lapic_id);
+        if !wait_ack(unsafe { &(*d).ack }) {
+            warn!(
+                "TLB shootdown: CPU {} (LAPIC {}) did not ack",
+                position(cpu.lapic_id),
+                cpu.lapic_id
+            );
+        }
+    }
 }
 
 /// Set this CPU's idle bit and notify the BSP
@@ -261,7 +279,7 @@ pub fn notify_bsp_idle() {
 
 /// Spin-wait on an `ack` flag with a ~100 ms timeout.
 /// Returns `true` if the ack was received, `false` on timeout.
-fn wait_ack(ack: &AtomicBool) -> bool {
+pub fn wait_ack(ack: &AtomicBool) -> bool {
     let deadline = crate::acpi::passed_nanos() + Time::Milliseconds(100).to_nanos();
     while crate::acpi::passed_nanos() < deadline {
         if ack.load(Ordering::SeqCst) {

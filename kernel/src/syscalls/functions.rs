@@ -19,7 +19,7 @@ pub fn sys_print(arg1: u64) -> u64 {
                 None => return 1
             };
 
-            println!("{}", string);
+            print!("{}", string);
             0
         },
 

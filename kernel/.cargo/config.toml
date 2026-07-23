@@ -8,3 +8,9 @@ rustflags = [
     "-C", "relocation-model=static",
     "-C", "code-model=kernel"
 ]
+
+[profile.release]
+strip = true
+lto = "fat"
+panic = "abort"
+codegen-units = 1
