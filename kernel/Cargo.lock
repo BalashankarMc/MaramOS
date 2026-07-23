@@ -26,7 +26,7 @@ version = "0.1.0"
 dependencies = [
  "lazy_static",
  "limine",
- "psf2",
+ "simple-psf",
  "spin",
  "x86_64",
  "xmas-elf",
@@ -57,12 +57,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "psf2"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db6e6132ee58c113ff86d61c49cb934dd45b3b59971442d0f9e982e62dff5457"
-
-[[package]]
 name = "rustversion"
 version = "1.0.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -73,6 +67,12 @@ name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
+
+[[package]]
+name = "simple-psf"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8dfb5d24f130ce16dd7e608140773454eb92d69191c258e8af9d811bcab03f1d"
 
 [[package]]
 name = "spin"

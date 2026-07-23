@@ -66,8 +66,8 @@ fn halt_loop() -> ! {
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    println!("Panic!");
-    println!("{}", info);
+    panic_println!("Panic!");
+    panic_println!("{}", info);
     ipi::halt_other_cpus();
     halt_loop();
 }
