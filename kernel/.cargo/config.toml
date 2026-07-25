@@ -1,0 +1,16 @@
+[build]
+
+target = "x86_64-unknown-none"
+
+[target.x86_64-unknown-none]
+rustflags = [
+    "-C", "link-arg=-Tlinker.ld",
+    "-C", "relocation-model=static",
+    "-C", "code-model=kernel"
+]
+
+[profile.release]
+strip = true
+lto = "fat"
+panic = "abort"
+codegen-units = 1
