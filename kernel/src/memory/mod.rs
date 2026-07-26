@@ -59,17 +59,17 @@ pub struct KMemory;
 
 impl KMemory {
     /// Returns a single zeroed Page (4KiB)
-    pub fn alloc_page() -> PhysPage {
-        let start = paging::alloc_frames(0);
-        PhysPage::new(start, 1)
+    pub fn alloc_page() -> Option<PhysPage> {
+        let start = paging::alloc_frames(0)?;
+        Some(PhysPage::new(start, 1))
     }
 
     /// Returns a zeroed PhysPage containing exactly `count` pages.
     /// Non‑power‑of‑two counts are served via the page‑slab sub‑allocator
     /// to avoid rounding waste.
-    pub fn alloc_pages(count: usize) -> PhysPage {
-        let start = paging::alloc_page_range(count);
-        PhysPage::new(start, count)
+    pub fn alloc_pages(count: usize) -> Option<PhysPage> {
+        let start = paging::alloc_page_range(count)?;
+        Some(PhysPage::new(start, count))
     }
 
     /// Map a Physical Address for Memory-mapped I/O
@@ -98,25 +98,28 @@ impl KMemory {
 pub fn resolve_user_demand_page(vmas: &[VirtualMemoryArea], page_table: PhysAddr, addr: u64, error_code: PageFaultErrorCode) -> bool {
     let page_addr = addr & !0xFFF;
 
-    let vma = match vmas.iter().find(|v| addr >= v.start && addr < v.end) {
+    let vma = match vmas.iter().find(|v| addr >= v.start() && addr < v.end()) {
         Some(v) => v,
         None => return false,
     };
 
-    if error_code.contains(PageFaultErrorCode::CAUSED_BY_WRITE) && !vma.perms.contains(PageTableFlags::WRITABLE) { return false }
-    if error_code.contains(PageFaultErrorCode::INSTRUCTION_FETCH) && vma.perms.contains(PageTableFlags::NO_EXECUTE) { return false }
+    if error_code.contains(PageFaultErrorCode::CAUSED_BY_WRITE) && !vma.perms().contains(PageTableFlags::WRITABLE) { return false }
+    if error_code.contains(PageFaultErrorCode::INSTRUCTION_FETCH) && vma.perms().contains(PageTableFlags::NO_EXECUTE) { return false }
 
-    let phys = paging::alloc_frames(0);
+    let phys = match paging::alloc_frames(0) {
+        Some(p) => p,
+        None => return false,
+    };
     let page_virt = phys_to_virt(phys);
 
-    match &vma.backing {
+    match vma.backing() {
         VMABacking::Anonymous => {}
         VMABacking::File {
             cache,
             data_offset,
             file_size,
         } => {
-            let offset = page_addr - vma.start;
+            let offset = page_addr - vma.start();
             if offset >= *data_offset && offset < *data_offset + file_size {
                 let cache_virt = cache.get_virt_addr();
                 let src = unsafe { cache_virt.as_ptr::<u8>().add(offset as usize) };
@@ -128,7 +131,7 @@ pub fn resolve_user_demand_page(vmas: &[VirtualMemoryArea], page_table: PhysAddr
 
     let flags = PageTableFlags::USER_ACCESSIBLE
         | PageTableFlags::PRESENT
-        | (vma.perms & (PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE));
+        | (vma.perms() & (PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE));
 
     let page = PhysPage::new(phys, 1);
 

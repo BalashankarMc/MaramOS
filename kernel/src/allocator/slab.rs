@@ -31,8 +31,16 @@ pub(crate) struct PageSlab<const MAX_BLOCKS: usize> {
 impl<const MAX_BLOCKS: usize> PageSlab<MAX_BLOCKS> {
     pub const fn new(block_size: usize) -> Self {
         Self {
+            blocks: [BlockInfo {
+                phys_base: 0,
+                total_blocks: 0,
+                allocated_blocks: 0,
+                free_list: 0,
+                used: false,
+            }; MAX_BLOCKS],
+            block_count: 0,
+            offset: 0,
             block_size,
-            .. unsafe { core::mem::zeroed() }
         }
     }
 

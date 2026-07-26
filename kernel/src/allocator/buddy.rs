@@ -41,11 +41,17 @@ impl<const MIN_ORDER: usize, const ORDER_COUNT: usize, const SLAB_BLOCKS: usize,
 
     pub fn buddy_of(addr: u64, order: usize) -> u64 { addr ^ Self::block_size(order) as u64 }
 
+    /// # Safety
+    ///
+    /// - `addr` must be a valid unused memory block of the given order.
     pub unsafe fn push(&mut self, addr: u64, order: usize) {
         unsafe { self.ptr(addr).write(self.heads[order]) }
         self.heads[order] = addr;
     }
 
+    /// # Safety
+    ///
+    /// - The free list for `order` must not be empty (check `self.heads[order] != 0` first).
     pub unsafe fn pop(&mut self, order: usize) -> Option<u64> {
         let head = self.heads[order];
         if head == 0 {
@@ -56,6 +62,9 @@ impl<const MIN_ORDER: usize, const ORDER_COUNT: usize, const SLAB_BLOCKS: usize,
         Some(head)
     }
 
+    /// # Safety
+    ///
+    /// - `addr` must be a valid entry in the free list for `order`.
     pub unsafe fn remove(&mut self, addr: u64, order: usize) -> bool {
         let mut prev_ptr: *mut u64 = &mut self.heads[order];
         let mut current = self.heads[order];

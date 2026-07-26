@@ -68,9 +68,13 @@ impl BuddyHeap {
 struct LockedBuddyHeap(InterruptMutex<Option<BuddyHeap>>);
 
 unsafe impl GlobalAlloc for LockedBuddyHeap {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 { self.0.lock().as_mut().expect("Failed to get mutable lock on allocator").alloc(layout) }
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        self.0.lock().as_mut().map_or(core::ptr::null_mut(), |h| h.alloc(layout))
+    }
 
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) { self.0.lock().as_mut().expect("Failed to get mutable lock on allocator").free(ptr, layout) }
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        if let Some(h) = self.0.lock().as_mut() { h.free(ptr, layout) }
+    }
 }
 
 #[global_allocator]
@@ -82,7 +86,7 @@ pub fn init(size: usize) {
     let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
     let pages = size / (Size4KiB::SIZE as usize);
 
-    let phys_block = paging::alloc_page_range(pages);
+    let phys_block = paging::alloc_page_range(pages).expect("OOM");
     for i in 0..pages {
         let virt = VirtAddr::new(HEAP_START as u64 + (i as u64) * Size4KiB::SIZE);
         let page = Page::<Size4KiB>::containing_address(virt);

@@ -14,7 +14,7 @@ use x86_64::{PhysAddr, VirtAddr, structures::paging::{PageSize, PageTableFlags, 
 #[derive(Debug)]
 pub struct PhysPage {
     start: PhysAddr,
-    pub page_count: usize,
+    page_count: usize,
 }
 
 impl Drop for PhysPage {
@@ -87,10 +87,21 @@ pub enum VMABacking {
 }
 
 pub struct VirtualMemoryArea {
-    pub start: u64,
-    pub end: u64,
-    pub perms: PageTableFlags,
-    pub backing: VMABacking,
+    start: u64,
+    end: u64,
+    perms: PageTableFlags,
+    backing: VMABacking,
+}
+
+impl VirtualMemoryArea {
+    pub fn new(start: u64, end: u64, perms: PageTableFlags, backing: VMABacking) -> Self {
+        Self { start, end, perms, backing }
+    }
+
+    pub fn start(&self) -> u64 { self.start }
+    pub fn end(&self) -> u64 { self.end }
+    pub fn perms(&self) -> PageTableFlags { self.perms }
+    pub fn backing(&self) -> &VMABacking { &self.backing }
 }
 
 /// A physically‑contiguous DMA buffer backed by exactly the requested
@@ -103,11 +114,11 @@ pub struct DMABuffer {
 
 #[allow(dead_code)]
 impl DMABuffer {
-    pub fn new(size_bytes: usize) -> Self {
+    pub fn new(size_bytes: usize) -> Option<Self> {
         let pages = size_bytes.div_ceil(Size4KiB::SIZE as usize);
-        let phys = alloc_page_range(pages);
+        let phys = alloc_page_range(pages)?;
 
-        Self { phys, pages }
+        Some(Self { phys, pages })
     }
 
     pub fn phys(&self) -> PhysAddr { self.phys }

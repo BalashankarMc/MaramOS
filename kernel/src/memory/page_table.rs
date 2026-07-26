@@ -4,7 +4,7 @@
 //! table creation (copies kernel half), address space teardown, and page
 //! fault checking for demand paging.
 
-use super::{paging::alloc_frames, phys_to_virt, PhysPage};
+use super::{paging::{alloc_frames, free_frames}, phys_to_virt, PhysPage};
 
 use crate::helpers::LateInit;
 
@@ -30,14 +30,13 @@ const MMIO_PAGES: u64 = (MMIO_END - MMIO_START) / Size4KiB::SIZE;
 pub struct PMMFrameAllocator;
 
 unsafe impl FrameAllocator<Size4KiB> for PMMFrameAllocator {
-    fn allocate_frame(&mut self) -> Option<PhysFrame> { Some(PhysFrame::containing_address(alloc_frames(0))) }
+    fn allocate_frame(&mut self) -> Option<PhysFrame> { alloc_frames(0).map(PhysFrame::containing_address) }
 }
 
-pub unsafe fn active_l4_table() -> &'static mut PageTable {
+pub fn with_active_l4_table<T>(f: impl FnOnce(&mut PageTable) -> T) -> T {
     let (frame, _) = Cr3::read();
-    let phys = frame.start_address();
-    let virt = phys_to_virt(phys);
-    unsafe { &mut *(virt.as_mut_ptr::<PageTable>()) }
+    let table = unsafe { &mut *(phys_to_virt(frame.start_address()).as_mut_ptr::<PageTable>()) };
+    f(table)
 }
 
 pub struct PhysOffset(pub u64);
@@ -56,23 +55,33 @@ pub enum PageMapping {
     Size1G(Page<Size1GiB>, PhysFrame<Size1GiB>),
 }
 
+/// # Safety
+///
+/// - `PHYS_OFFSET` must be initialized.
+/// - The mapping must not overlap an existing valid mapping.
+/// - `mapping` must reference valid physical and virtual frame/page addresses.
 pub unsafe fn map_sized_page(mapping: PageMapping, flags: PageTableFlags) {
-    let l4 = unsafe { active_l4_table() };
-    let mut mapper = unsafe { MappedPageTable::new(l4, PhysOffset(*super::PHYS_OFFSET)) };
-    let mut allocator = PMMFrameAllocator;
-    match mapping {
-        PageMapping::Size4K(page, frame) => unsafe {
-            mapper.map_to(page, frame, flags, &mut allocator).expect("map_to failed").flush();
-        },
-        PageMapping::Size2M(page, frame) => unsafe {
-            mapper.map_to(page, frame, flags, &mut allocator).expect("map_to failed").flush();
-        },
-        PageMapping::Size1G(page, frame) => unsafe {
-            mapper.map_to(page, frame, flags, &mut allocator).expect("map_to failed").flush();
-        },
-    }
+    with_active_l4_table(|l4| {
+        let mut mapper = unsafe { MappedPageTable::new(l4, PhysOffset(*super::PHYS_OFFSET)) };
+        let mut allocator = PMMFrameAllocator;
+        match mapping {
+            PageMapping::Size4K(page, frame) => unsafe {
+                mapper.map_to(page, frame, flags, &mut allocator).expect("map_to failed").flush();
+            },
+            PageMapping::Size2M(page, frame) => unsafe {
+                mapper.map_to(page, frame, flags, &mut allocator).expect("map_to failed").flush();
+            },
+            PageMapping::Size1G(page, frame) => unsafe {
+                mapper.map_to(page, frame, flags, &mut allocator).expect("map_to failed").flush();
+            },
+        }
+    });
 }
 
+/// # Safety
+///
+/// - `phys` must point to a valid MMIO region.
+/// - `pages` must not overflow the MMIO virtual window.
 pub unsafe fn map_mmio(phys: PhysAddr, pages: usize) -> VirtAddr {
     let offset = NEXT_PAGE_ID.fetch_add(pages as u64, Ordering::AcqRel);
     if offset >= MMIO_PAGES { panic!("Out of memory for MMIO!") }
@@ -92,13 +101,20 @@ pub unsafe fn map_mmio(phys: PhysAddr, pages: usize) -> VirtAddr {
     virt_base
 }
 
+/// # Safety
+///
+/// - `page` must be currently mapped in the active level 4 page table.
 pub unsafe fn unmap_page(page: Page<Size4KiB>) {
-    let l4 = unsafe { active_l4_table() };
-    let mut mapper = unsafe { MappedPageTable::new(l4, PhysOffset(*super::PHYS_OFFSET)) };
-
-    mapper.unmap(page).expect("unmap failed").1.flush();
+    with_active_l4_table(|l4| {
+        let mut mapper = unsafe { MappedPageTable::new(l4, PhysOffset(*super::PHYS_OFFSET)) };
+        mapper.unmap(page).expect("unmap failed").1.flush();
+    });
 }
 
+/// # Safety
+///
+/// - `virt` must be the base of a previously mapped MMIO region.
+/// - `pages` must match the original mapping count.
 pub unsafe fn unmap_mmio(virt: VirtAddr, pages: usize) {
     for i in 0..pages {
         let page = Page::containing_address(virt + (i as u64) * Size4KiB::SIZE);
@@ -107,7 +123,7 @@ pub unsafe fn unmap_mmio(virt: VirtAddr, pages: usize) {
 }
 
 pub fn new_user_page_table() -> PhysAddr {
-    let new_l4_phys = alloc_frames(0);
+    let new_l4_phys = alloc_frames(0).expect("OOM");
     let l4_virt = phys_to_virt(new_l4_phys);
     let new_l4 = unsafe { &mut *l4_virt.as_mut_ptr::<PageTable>() };
 
@@ -121,6 +137,10 @@ pub fn new_user_page_table() -> PhysAddr {
     new_l4_phys
 }
 
+/// # Safety
+///
+/// - `l4_phys` must point to a valid level 4 page table.
+/// - The target virtual range must not overlap existing valid mappings.
 pub unsafe fn map_user_page(l4_phys: PhysAddr, virt: VirtAddr, page: &PhysPage, mut flags: PageTableFlags) {
     let l4_virt = phys_to_virt(l4_phys);
     let l4 = unsafe { &mut *l4_virt.as_mut_ptr::<PageTable>() };
@@ -178,28 +198,28 @@ pub unsafe fn map_user_page(l4_phys: PhysAddr, virt: VirtAddr, page: &PhysPage, 
 }
 
 pub fn is_user_page_mapped(addr: u64) -> bool {
-    let l4 = unsafe { active_l4_table() };
+    with_active_l4_table(|l4| {
+        let l4_i = (addr >> 39) as usize & 0x1FF;
+        let l3_i = (addr >> 30) as usize & 0x1FF;
+        let l2_i = (addr >> 21) as usize & 0x1FF;
+        let l1_i = (addr >> 12) as usize & 0x1FF;
 
-    let l4_i = (addr >> 39) as usize & 0x1FF;
-    let l3_i = (addr >> 30) as usize & 0x1FF;
-    let l2_i = (addr >> 21) as usize & 0x1FF;
-    let l1_i = (addr >> 12) as usize & 0x1FF;
+        let l4e: &PageTableEntry = &l4[l4_i];
+        if l4e.is_unused() { return false }
+        let l3 = unsafe { &*phys_to_virt(l4e.addr()).as_ptr::<PageTable>() };
 
-    let l4e: &PageTableEntry = &l4[l4_i];
-    if l4e.is_unused() { return false }
-    let l3 = unsafe { &*phys_to_virt(l4e.addr()).as_ptr::<PageTable>() };
+        let l3e = &l3[l3_i];
+        if l3e.is_unused() { return false }
+        if l3e.flags().contains(PageTableFlags::HUGE_PAGE) { return true }
+        let l2 = unsafe { &*phys_to_virt(l3e.addr()).as_ptr::<PageTable>() };
 
-    let l3e = &l3[l3_i];
-    if l3e.is_unused() { return false }
-    if l3e.flags().contains(PageTableFlags::HUGE_PAGE) { return true }
-    let l2 = unsafe { &*phys_to_virt(l3e.addr()).as_ptr::<PageTable>() };
+        let l2e = &l2[l2_i];
+        if l2e.is_unused() { return false }
+        if l2e.flags().contains(PageTableFlags::HUGE_PAGE) { return true }
+        let l1 = unsafe { &*phys_to_virt(l2e.addr()).as_ptr::<PageTable>() };
 
-    let l2e = &l2[l2_i];
-    if l2e.is_unused() { return false }
-    if l2e.flags().contains(PageTableFlags::HUGE_PAGE) { return true }
-    let l1 = unsafe { &*phys_to_virt(l2e.addr()).as_ptr::<PageTable>() };
-
-    !l1[l1_i].is_unused()
+        !l1[l1_i].is_unused()
+    })
 }
 
 pub fn free_user_address_space(l4_phys: PhysAddr) {
@@ -246,6 +266,43 @@ pub fn free_user_address_space(l4_phys: PhysAddr) {
         super::paging::free_frames(l4e.addr(), 0);
     }
     super::paging::free_frames(l4_phys, 0);
+}
+
+pub fn try_upgrade_hhdm(phys: PhysAddr, order: usize) {
+    with_active_l4_table(|l4| {
+        let virt = phys_to_virt(phys).as_u64();
+
+        let l4_i = (virt >> 39) as usize & 0x1FF;
+        let l3_i = (virt >> 30) as usize & 0x1FF;
+        let l2_i = (virt >> 21) as usize & 0x1FF;
+
+        if order >= 18 && phys.is_aligned(Size1GiB::SIZE) {
+            let l3 = unsafe { &mut *phys_to_virt(l4[l4_i].addr()).as_mut_ptr::<PageTable>() };
+            let l3e = &mut l3[l3_i];
+            if l3e.flags().contains(PageTableFlags::HUGE_PAGE) { return }
+
+            let l2_table_phys = l3e.addr();
+            let l2 = unsafe { &*phys_to_virt(l2_table_phys).as_ptr::<PageTable>() };
+            for l2_entry in l2.iter() {
+                if l2_entry.is_unused() { continue }
+                if l2_entry.flags().contains(PageTableFlags::HUGE_PAGE) { free_frames(l2_entry.addr(), 9) }
+                else { free_frames(l2_entry.addr(), 0) }
+            }
+            free_frames(l2_table_phys, 0);
+            l3e.set_addr(phys, PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::GLOBAL | PageTableFlags::HUGE_PAGE);
+        }
+
+        if order >= 9 && phys.is_aligned(Size2MiB::SIZE) {
+            let l3 = unsafe { &mut *phys_to_virt(l4[l4_i].addr()).as_mut_ptr::<PageTable>() };
+            let l2 = unsafe { &mut *phys_to_virt(l3[l3_i].addr()).as_mut_ptr::<PageTable>() };
+            let l2e = &mut l2[l2_i];
+            if l2e.flags().contains(PageTableFlags::HUGE_PAGE) { return }
+
+            let l1_table_phys = l2e.addr();
+            l2e.set_addr(phys, PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::GLOBAL | PageTableFlags::HUGE_PAGE);
+            free_frames(l1_table_phys, 0);
+        }
+    });
 }
 
 pub fn init() { let (frame, _) = Cr3::read(); KERNEL_L4.init(frame); }

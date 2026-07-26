@@ -14,7 +14,7 @@ use crate::allocator::BuddyAllocator;
 use crate::helpers::InterruptMutex as Mutex;
 
 use limine::{memmap::MEMMAP_USABLE, request::MemmapRespData};
-use x86_64::{PhysAddr, VirtAddr, structures::paging::{PageSize, PageTable, PageTableFlags, Size1GiB, Size2MiB, Size4KiB}};
+use x86_64::{PhysAddr, VirtAddr, structures::paging::{PageSize, Size4KiB}};
 
 const ALLOC_MIN_ORDER: usize = 12;
 const ALLOC_ORDER_COUNT: usize = 19;
@@ -27,6 +27,10 @@ fn block_size(order: usize) -> usize {
 }
 
 /// Zero N consecutive 4 KiB pages starting at `virt`.
+///
+/// # Safety
+///
+/// - `virt` must point to `count` consecutive writable 4 KiB pages.
 unsafe fn zero_pages(virt: VirtAddr, count: usize) {
     let ptr = virt.as_mut_ptr::<u8>();
     let qwords = count * (Size4KiB::SIZE as usize / 8);
@@ -39,16 +43,16 @@ unsafe fn zero_pages(virt: VirtAddr, count: usize) {
     ) };
 }
 
-pub fn alloc_page_range(count: usize) -> PhysAddr {
+pub fn alloc_page_range(count: usize) -> Option<PhysAddr> {
     let mut alloc = ALLOCATOR.lock();
-    let block = alloc.alloc_range(count).expect("Out of Memory");
+    let block = alloc.alloc_range(count)?;
     let virt = phys_to_virt(PhysAddr::new(block));
     unsafe { zero_pages(virt, count) }
     let phys = PhysAddr::new(block);
     drop(alloc);
     let order = count.next_power_of_two().trailing_zeros() as usize;
     try_upgrade_hhdm(phys, order);
-    phys
+    Some(phys)
 }
 
 pub fn free_page_range(addr: PhysAddr, count: usize) {
@@ -90,16 +94,16 @@ pub fn init(memory_map: &MemmapRespData, phys_offset: u64) -> usize {
     total_frames * (Size4KiB::SIZE as usize)
 }
 
-pub fn alloc_frames(order: usize) -> PhysAddr {
+pub fn alloc_frames(order: usize) -> Option<PhysAddr> {
     let mut alloc = ALLOCATOR.lock();
-    let block = alloc.alloc(order).expect("Out of Memory");
+    let block = alloc.alloc(order)?;
     let pages = 1 << order;
     let virt = phys_to_virt(PhysAddr::new(block));
     unsafe { zero_pages(virt, pages) }
     let phys = PhysAddr::new(block);
     drop(alloc);
     try_upgrade_hhdm(phys, order);
-    phys
+    Some(phys)
 }
 
 pub fn free_frames(addr: PhysAddr, order: usize) {
@@ -107,39 +111,5 @@ pub fn free_frames(addr: PhysAddr, order: usize) {
 }
 
 pub fn try_upgrade_hhdm(phys: PhysAddr, order: usize) {
-    let virt = phys_to_virt(phys).as_u64();
-    let l4 = unsafe { super::page_table::active_l4_table() };
-
-    let l4_i = (virt >> 39) as usize & 0x1FF;
-    let l3_i = (virt >> 30) as usize & 0x1FF;
-    let l2_i = (virt >> 21) as usize & 0x1FF;
-
-    // 1 GiB upgrade
-    if order >= 18 && phys.is_aligned(Size1GiB::SIZE) {
-        let l3 = unsafe { &mut *phys_to_virt(l4[l4_i].addr()).as_mut_ptr::<PageTable>() };
-        let l3e = &mut l3[l3_i];
-        if l3e.flags().contains(PageTableFlags::HUGE_PAGE) { return } // already upgraded
-
-        let l2_table_phys = l3e.addr();
-        let l2 = unsafe { &*phys_to_virt(l2_table_phys).as_ptr::<PageTable>() };
-        // Free all L1 tables and their frames under this L2 table
-        for l2_entry in l2.iter() {
-            if l2_entry.is_unused() { continue }
-            if l2_entry.flags().contains(PageTableFlags::HUGE_PAGE) { free_frames(l2_entry.addr(), 9) }
-            else { free_frames(l2_entry.addr(), 0) }
-        }
-        free_frames(l2_table_phys, 0); // free L2 table itself
-        l3e.set_addr(phys, PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::GLOBAL | PageTableFlags::HUGE_PAGE);
-    }
-    
-    if order >= 9 && phys.is_aligned(Size2MiB::SIZE) {
-        let l3 = unsafe { &mut *phys_to_virt(l4[l4_i].addr()).as_mut_ptr::<PageTable>() };
-        let l2 = unsafe { &mut *phys_to_virt(l3[l3_i].addr()).as_mut_ptr::<PageTable>() };
-        let l2e = &mut l2[l2_i];
-        if l2e.flags().contains(PageTableFlags::HUGE_PAGE) { return } // already upgraded
-
-        let l1_table_phys = l2e.addr();
-        l2e.set_addr(phys, PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::GLOBAL | PageTableFlags::HUGE_PAGE);
-        free_frames(l1_table_phys, 0); // free the now-orphaned L1 table
-    }
+    super::page_table::try_upgrade_hhdm(phys, order)
 }
