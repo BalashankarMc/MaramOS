@@ -1,1 +1,0 @@
-helpers::interrupt_mutex::InterruptMutex<core::option::Option<display::terminal::Terminal<'static>>>
