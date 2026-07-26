@@ -39,6 +39,28 @@ pub fn _log_success(args: fmt::Arguments) {
     }
 }
 
+pub fn _log_warning(args: fmt::Arguments) {
+    let mut guard = TERMINAL.lock();
+    if let Some(ref mut t) = *guard {
+        t.set_colors(Color::YELLOW, Color::BLACK);
+        t.print_str("[WARN] ");
+        t.set_colors(Color::WHITE, Color::BLACK);
+        fmt::write(t, args).ok();
+        t.print_str("\n");
+    }
+}
+
+pub fn _log_error(args: fmt::Arguments) {
+    let mut guard = TERMINAL.lock();
+    if let Some(ref mut t) = *guard {
+        t.set_colors(Color::RED, Color::BLACK);
+        t.print_str("[ERROR] ");
+        t.set_colors(Color::WHITE, Color::BLACK);
+        fmt::write(t, args).ok();
+        t.print_str("\n");
+    }
+}
+
 #[macro_export]
 macro_rules! print {
     ($($arg:tt)*) => ($crate::stdout::_print(format_args!($($arg)*)));
@@ -60,10 +82,10 @@ macro_rules! log_success {
 
 #[macro_export]
 macro_rules! warn {
-    ($($arg:tt)*) => ($crate::println!("[!] {}", format_args!($($arg)*)));
+    ($($arg:tt)*) => ($crate::stdout::_log_warning(format_args!($($arg)*)));
 }
 
 #[macro_export]
 macro_rules! log_error {
-    ($($arg:tt)*) => ($crate::println!("[-] {}", format_args!($($arg)*)));
+    ($($arg:tt)*) => ($crate::stdout::_log_error(format_args!($($arg)*)));
 }

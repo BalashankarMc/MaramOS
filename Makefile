@@ -23,3 +23,4 @@ run: build
 
 clean:
 	make -C kernel clean
+	rm kernel.elf

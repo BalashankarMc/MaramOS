@@ -3,15 +3,28 @@
 #![allow(dead_code)]
 #![deny(clippy::all)]
 
-mod boot;
+extern crate alloc;
+
 mod display;
 mod helpers;
 mod requests;
+mod memory;
+mod allocator;
+
+#[macro_use]
 mod stdout;
 
 #[unsafe(no_mangle)]
 fn kmain() -> ! {
-    boot::init();
+    // Framebuffer initialisation
+
+    let fb_raw = requests::FRAMEBUFFER_REQUEST.response().unwrap().framebuffers()[0];
+    stdout::init(fb_raw);
+    stdout::clear();
+    log_success!("Framebuffer initialized!");
+
+    memory::init();
+
     log_success!("Kernel ready");
     halt_loop()
 }
@@ -21,6 +34,10 @@ fn halt_loop() -> ! {
 }
 
 #[panic_handler]
-fn panic(_info: &core::panic::PanicInfo) -> ! {
+fn panic(info: &core::panic::PanicInfo) -> ! {
+    log_error!("KERNEL PANIC!");
+
+    println!("{}", info);
+
     halt_loop()
 }
