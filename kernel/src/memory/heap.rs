@@ -1,7 +1,7 @@
 //! A global heap allocator for kernel memory.
 //!
 //! Uses the buddy-based [`BuddyAllocator`](crate::allocator::BuddyAllocator)
-//! as the backing allocator, wrapped in an InterruptMutex for interrupt-safety.
+//! as the backing allocator, wrapped in an `InterruptMutex` for interrupt-safety.
 //!
 //! # Initialisation
 //!
@@ -39,7 +39,7 @@ impl BuddyHeap {
         }
     }
 
-    fn block_size(order: usize) -> usize { BuddyAllocator::<HEAP_MIN_ORDER, HEAP_ORDER_COUNT, 0>::block_size(order) }
+    const fn block_size(order: usize) -> usize { BuddyAllocator::<HEAP_MIN_ORDER, HEAP_ORDER_COUNT, 0>::block_size(order) }
 
     fn order_for(layout: Layout) -> usize {
         let size = layout.size().max(layout.align()).max(MIN_BLOCK);
@@ -50,9 +50,7 @@ impl BuddyHeap {
 
     fn alloc(&mut self, layout: Layout) -> *mut u8 {
         if !self.initialized { return core::ptr::null_mut() }
-        self.alloc.alloc(Self::order_for(layout))
-            .map(|a| a as *mut u8)
-            .unwrap_or(core::ptr::null_mut())
+        self.alloc.alloc(Self::order_for(layout)).map_or(core::ptr::null_mut(), |a| a as *mut u8)
     }
 
     fn free(&mut self, ptr: *mut u8, layout: Layout) {

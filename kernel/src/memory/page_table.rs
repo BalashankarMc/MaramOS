@@ -48,7 +48,7 @@ unsafe impl PageTableFrameMapping for PhysOffset {
     }
 }
 
-#[allow(dead_code)]
+#[derive(Clone, Copy)]
 pub enum PageMapping {
     Size4K(Page<Size4KiB>, PhysFrame<Size4KiB>),
     Size2M(Page<Size2MiB>, PhysFrame<Size2MiB>),
@@ -84,7 +84,7 @@ pub unsafe fn map_sized_page(mapping: PageMapping, flags: PageTableFlags) {
 /// - `pages` must not overflow the MMIO virtual window.
 pub unsafe fn map_mmio(phys: PhysAddr, pages: usize) -> VirtAddr {
     let offset = NEXT_PAGE_ID.fetch_add(pages as u64, Ordering::AcqRel);
-    if offset >= MMIO_PAGES { panic!("Out of memory for MMIO!") }
+    assert!(offset < MMIO_PAGES, "Out of MMIO Space!");
     let virt_base = VirtAddr::new(MMIO_START + offset * Size4KiB::SIZE);
 
     let flags = PageTableFlags::PRESENT
@@ -164,13 +164,13 @@ pub unsafe fn map_user_page(l4_phys: PhysAddr, virt: VirtAddr, page: &PhysPage, 
             let page = Page::<Size1GiB>::containing_address(curr_virt + offset);
             let frame = PhysFrame::<Size1GiB>::containing_address(curr_phys + offset);
             unsafe { mapper.map_to(page, frame, flags | PageTableFlags::HUGE_PAGE, &mut allocator)
-                .expect("Failed to map User 1GiB Page").flush() }
+                .expect("Failed to map User 1GiB Page").flush(); }
         }
 
-        let mapped = count as usize * 0x40000;
-        rem -= mapped;
-        curr_phys += (mapped as u64) * Size4KiB::SIZE;
-        curr_virt += (mapped as u64) * Size4KiB::SIZE;
+        let mapped_pages = count as usize * 0x40000;
+        rem -= mapped_pages;
+        curr_phys += (mapped_pages as u64) * Size4KiB::SIZE;
+        curr_virt += (mapped_pages as u64) * Size4KiB::SIZE;
     }
 
     if rem >= 0x200 {
@@ -180,13 +180,13 @@ pub unsafe fn map_user_page(l4_phys: PhysAddr, virt: VirtAddr, page: &PhysPage, 
             let page = Page::<Size2MiB>::containing_address(curr_virt + offset);
             let frame = PhysFrame::<Size2MiB>::containing_address(curr_phys + offset);
             unsafe { mapper.map_to(page, frame, flags | PageTableFlags::HUGE_PAGE, &mut allocator)
-                .expect("Failed to map User 2MiB Page").flush() }
+                .expect("Failed to map User 2MiB Page").flush(); }
         }
 
-        let mapped = count as usize * 0x200;
-        rem -= mapped;
-        curr_phys += (mapped as u64) * Size4KiB::SIZE;
-        curr_virt += (mapped as u64) * Size4KiB::SIZE;
+        let map = count as usize * 0x200;
+        rem -= map;
+        curr_phys += (map as u64) * Size4KiB::SIZE;
+        curr_virt += (map as u64) * Size4KiB::SIZE;
     }
 
     for i in 0..rem as u64 {

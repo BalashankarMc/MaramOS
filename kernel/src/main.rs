@@ -1,6 +1,6 @@
 #![no_std]
 #![no_main]
-#![allow(dead_code)]
+#![allow(dead_code, clippy::cast_possible_truncation)]
 #![deny(clippy::all)]
 
 extern crate alloc;
@@ -15,7 +15,7 @@ mod allocator;
 mod stdout;
 
 #[unsafe(no_mangle)]
-fn kmain() -> ! {
+extern "C" fn kmain() -> ! {
     // Framebuffer initialisation
 
     let fb_raw = requests::FRAMEBUFFER_REQUEST.response().unwrap().framebuffers()[0];

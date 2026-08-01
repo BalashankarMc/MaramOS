@@ -26,7 +26,7 @@ impl Drop for PhysPage {
 
 impl PhysPage {
     /// DO NOT USE MANUALLY
-    pub(crate) fn new(start: PhysAddr, pages: usize) -> Self {
+    pub(crate) const fn new(start: PhysAddr, pages: usize) -> Self {
         Self {
             start,
             page_count: pages,
@@ -34,7 +34,7 @@ impl PhysPage {
     }
 
     /// Obtain the Physical Address of the start of the page segment
-    pub fn get_phys_address(&self) -> PhysAddr { self.start }
+    pub const fn get_phys_address(&self) -> PhysAddr { self.start }
 
     /// Obtain the Virtual Address of the start of the page segment
     pub fn get_virt_addr(&self) -> VirtAddr { phys_to_virt(self.start) }
@@ -43,11 +43,11 @@ impl PhysPage {
     ///
     /// # Safety
     /// Ensure the offset is not outside the range of the segment
-    pub fn write_data<T>(&mut self, offset: usize, data: T) {
+    pub fn write_data<T>(&self, offset: usize, data: T) {
         let base = self.get_virt_addr().as_mut_ptr::<u8>();
 
         unsafe {
-            let address = base.add(offset) as *mut T;
+            let address = base.add(offset).cast::<T>();
             address.write_volatile(data);
         }
     }
@@ -67,10 +67,10 @@ impl PhysPage {
     }
 
     /// Returns the number of pages in the segment
-    pub fn size(&self) -> usize { self.page_count }
+    pub const fn size(&self) -> usize { self.page_count }
 
     /// Leak the page segment to prevent it from being dropped
-    pub fn leak(self) -> (PhysAddr, usize) {
+    pub const fn leak(self) -> (PhysAddr, usize) {
         let data = (self.start, self.page_count);
         core::mem::forget(self);
         data
@@ -94,14 +94,14 @@ pub struct VirtualMemoryArea {
 }
 
 impl VirtualMemoryArea {
-    pub fn new(start: u64, end: u64, perms: PageTableFlags, backing: VMABacking) -> Self {
+    pub const fn new(start: u64, end: u64, perms: PageTableFlags, backing: VMABacking) -> Self {
         Self { start, end, perms, backing }
     }
 
-    pub fn start(&self) -> u64 { self.start }
-    pub fn end(&self) -> u64 { self.end }
-    pub fn perms(&self) -> PageTableFlags { self.perms }
-    pub fn backing(&self) -> &VMABacking { &self.backing }
+    pub const fn start(&self) -> u64 { self.start }
+    pub const fn end(&self) -> u64 { self.end }
+    pub const fn perms(&self) -> PageTableFlags { self.perms }
+    pub const fn backing(&self) -> &VMABacking { &self.backing }
 }
 
 /// A physically‑contiguous DMA buffer backed by exactly the requested
@@ -121,11 +121,11 @@ impl DMABuffer {
         Some(Self { phys, pages })
     }
 
-    pub fn phys(&self) -> PhysAddr { self.phys }
+    pub const fn phys(&self) -> PhysAddr { self.phys }
 
     pub fn virt(&self) -> VirtAddr { phys_to_virt(self.phys) }
 
-    pub fn size(&self) -> usize { self.pages * (Size4KiB::SIZE as usize) }
+    pub const fn size(&self) -> usize { self.pages * (Size4KiB::SIZE as usize) }
 }
 
 impl Drop for DMABuffer {

@@ -1,9 +1,9 @@
 //! The Memory module. Manages the Heap, Page allocation, HHDM and provides DMA Buffers.
 //!
-//! Most Page manipulation is done through the PhysPage Struct (RAII), which represents a physically-contiguous
+//! Most Page manipulation is done through the `PhysPage` Struct (RAII), which represents a physically-contiguous
 //! cluster of 4KiB Pages.
-//! HHDM functionality is provided through the phys_to_virt() function at the module root.
-//! All other memory is managed by the KMemory Struct.
+//! HHDM functionality is provided through the `phys_to_virt` function at the module root.
+//! All other memory is managed by the `KMemory` Struct.
 //!
 //! Page allocation uses a buddy allocator for power‑of‑two page counts
 //! and a slab sub‑allocator for non‑power‑of‑two counts,
@@ -38,7 +38,7 @@ static PHYS_OFFSET: LateInit<u64> = LateInit::new();
 pub fn phys_to_virt(phys: PhysAddr) -> VirtAddr { VirtAddr::new(phys.as_u64() + *PHYS_OFFSET) }
 
 /// Initialize the memory module
-/// Takes a Limine MemmapRequest and the HHDM offset.
+/// Takes a Limine `MemmapRequest` and the HHDM offset.
 pub fn init() {
     let hhdm_offset = HHDM_REQUEST.response().unwrap().offset;
     let mmap = MMAP_REQUEST.response().unwrap();
@@ -47,13 +47,13 @@ pub fn init() {
     let _pages = paging::init(mmap, hhdm_offset);
     heap::init(1024 * 1024);
 
-    log_success!("Memory Initialized!")
+    log_success!("Memory Initialized!");
 }
 
 pub use wrappers::{PhysPage, VMABacking, VirtualMemoryArea};
 
 /// The main memory manager struct.
-/// Provides page allocation (auto-deallocated via PhysPage's Drop)
+/// Provides page allocation (auto-deallocated via `PhysPage`'s Drop)
 /// and MMIO mapping/unmapping.
 pub struct KMemory;
 
@@ -64,7 +64,7 @@ impl KMemory {
         Some(PhysPage::new(start, 1))
     }
 
-    /// Returns a zeroed PhysPage containing exactly `count` pages.
+    /// Returns a zeroed `PhysPage` containing exactly `count` pages.
     /// Non‑power‑of‑two counts are served via the page‑slab sub‑allocator
     /// to avoid rounding waste.
     pub fn alloc_pages(count: usize) -> Option<PhysPage> {
@@ -98,18 +98,17 @@ impl KMemory {
 pub fn resolve_user_demand_page(vmas: &[VirtualMemoryArea], page_table: PhysAddr, addr: u64, error_code: PageFaultErrorCode) -> bool {
     let page_addr = addr & !0xFFF;
 
-    let vma = match vmas.iter().find(|v| addr >= v.start() && addr < v.end()) {
-        Some(v) => v,
-        None => return false,
-    };
+    // let vma = match vmas.iter().find(|v| addr >= v.start() && addr < v.end()) {
+    //     Some(v) => v,
+    //     None => return false,
+    // };
+
+    let Some(vma) = vmas.iter().find(|v| addr >= v.start() && addr < v.end()) else { return false };
 
     if error_code.contains(PageFaultErrorCode::CAUSED_BY_WRITE) && !vma.perms().contains(PageTableFlags::WRITABLE) { return false }
     if error_code.contains(PageFaultErrorCode::INSTRUCTION_FETCH) && vma.perms().contains(PageTableFlags::NO_EXECUTE) { return false }
 
-    let phys = match paging::alloc_frames(0) {
-        Some(p) => p,
-        None => return false,
-    };
+    let Some(phys) = paging::alloc_frames(0) else { return false };
     let page_virt = phys_to_virt(phys);
 
     match vma.backing() {
@@ -135,12 +134,7 @@ pub fn resolve_user_demand_page(vmas: &[VirtualMemoryArea], page_table: PhysAddr
 
     let page = PhysPage::new(phys, 1);
 
-    unsafe { page_table::map_user_page(
-        page_table,
-        VirtAddr::new(page_addr),
-        &page,
-        flags) }
-
+    unsafe { page_table::map_user_page(page_table, VirtAddr::new(page_addr), &page, flags) }
     page.leak();
 
     true

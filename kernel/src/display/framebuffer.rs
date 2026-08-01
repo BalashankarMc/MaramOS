@@ -3,21 +3,21 @@ use limine::framebuffer::Framebuffer;
 pub struct FrameBuffer<'a>(&'a Framebuffer);
 
 impl<'a> FrameBuffer<'a> {
-    pub fn new(fb: &'a Framebuffer) -> Self { Self(fb) }
+    pub const fn new(fb: &'a Framebuffer) -> Self { Self(fb) }
 
     fn ptr(&self) -> *mut u32 {
-        self.0.address() as *mut u32
+        self.0.address().cast::<u32>()
     }
 
-    fn position(&self, x: usize, y: usize) -> usize {
+    const fn position(&self, x: usize, y: usize) -> usize {
         ((self.0.pitch / 4) as usize * y) + x
     }
 
-    pub fn width(&self) -> usize {
+    pub const fn width(&self) -> usize {
         self.0.width as usize
     }
 
-    pub fn height(&self) -> usize {
+    pub const fn height(&self) -> usize {
         self.0.height as usize
     }
 
@@ -36,7 +36,7 @@ impl<'a> FrameBuffer<'a> {
         }
     }
 
-    pub fn fill_screen(&mut self, color: u32) {
+    pub fn fill_screen(&self, color: u32) {
         let ptr = self.ptr();
         for i in 0..self.0.size() / 4 {
             unsafe { ptr.add(i).write_volatile(color) }

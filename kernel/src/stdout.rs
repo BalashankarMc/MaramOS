@@ -22,13 +22,13 @@ pub fn set_colors(fg: Color, bg: Color) {
     }
 }
 
-pub fn _print(args: fmt::Arguments) {
+pub fn print(args: fmt::Arguments) {
     if let Some(ref mut t) = *TERMINAL.lock() {
         fmt::write(t, args).ok();
     }
 }
 
-pub fn _log_success(args: fmt::Arguments) {
+pub fn log_ok(args: fmt::Arguments) {
     let mut guard = TERMINAL.lock();
     if let Some(ref mut t) = *guard {
         t.set_colors(Color::GREEN, Color::BLACK);
@@ -39,7 +39,7 @@ pub fn _log_success(args: fmt::Arguments) {
     }
 }
 
-pub fn _log_warning(args: fmt::Arguments) {
+pub fn log_warn(args: fmt::Arguments) {
     let mut guard = TERMINAL.lock();
     if let Some(ref mut t) = *guard {
         t.set_colors(Color::YELLOW, Color::BLACK);
@@ -50,7 +50,7 @@ pub fn _log_warning(args: fmt::Arguments) {
     }
 }
 
-pub fn _log_error(args: fmt::Arguments) {
+pub fn log_err(args: fmt::Arguments) {
     let mut guard = TERMINAL.lock();
     if let Some(ref mut t) = *guard {
         t.set_colors(Color::RED, Color::BLACK);
@@ -63,7 +63,7 @@ pub fn _log_error(args: fmt::Arguments) {
 
 #[macro_export]
 macro_rules! print {
-    ($($arg:tt)*) => ($crate::stdout::_print(format_args!($($arg)*)));
+    ($($arg:tt)*) => ($crate::stdout::print(format_args!($($arg)*)));
 }
 
 #[macro_export]
@@ -77,15 +77,15 @@ macro_rules! println {
 
 #[macro_export]
 macro_rules! log_success {
-    ($($arg:tt)*) => ($crate::stdout::_log_success(format_args!($($arg)*)));
+    ($($arg:tt)*) => ($crate::stdout::log_ok(format_args!($($arg)*)));
 }
 
 #[macro_export]
 macro_rules! warn {
-    ($($arg:tt)*) => ($crate::stdout::_log_warning(format_args!($($arg)*)));
+    ($($arg:tt)*) => ($crate::stdout::log_warn(format_args!($($arg)*)));
 }
 
 #[macro_export]
 macro_rules! log_error {
-    ($($arg:tt)*) => ($crate::stdout::_log_error(format_args!($($arg)*)));
+    ($($arg:tt)*) => ($crate::stdout::log_err(format_args!($($arg)*)));
 }

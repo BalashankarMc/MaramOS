@@ -19,7 +19,7 @@ pub struct Terminal<'a> {
 }
 
 impl<'a> Terminal<'a> {
-    pub fn new(fb: FrameBuffer<'a>) -> Self {
+    pub const fn new(fb: FrameBuffer<'a>) -> Self {
         let cols = fb.width() / FONT.glyph_width;
         let rows = fb.height() / FONT.glyph_height;
         Terminal {
@@ -66,7 +66,7 @@ impl<'a> Terminal<'a> {
         }
     }
 
-    pub fn set_colors(&mut self, fg: Color, bg: Color) {
+    pub const fn set_colors(&mut self, fg: Color, bg: Color) {
         self.fg = fg;
         self.bg = bg;
     }
@@ -126,7 +126,7 @@ impl<'a> Terminal<'a> {
     }
 }
 
-impl<'a> fmt::Write for Terminal<'a> {
+impl fmt::Write for Terminal<'_> {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         self.print_str(s);
         Ok(())

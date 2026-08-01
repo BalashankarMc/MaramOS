@@ -22,7 +22,7 @@ const ALLOC_ORDER_COUNT: usize = 19;
 static ALLOCATOR: Mutex<BuddyAllocator
     <ALLOC_MIN_ORDER, ALLOC_ORDER_COUNT, 64, true>> = Mutex::new(BuddyAllocator::new());
 
-fn block_size(order: usize) -> usize {
+const fn block_size(order: usize) -> usize {
     BuddyAllocator::<ALLOC_MIN_ORDER, ALLOC_ORDER_COUNT, 64, true>::block_size(order)
 }
 
@@ -40,7 +40,7 @@ unsafe fn zero_pages(virt: VirtAddr, count: usize) {
         inout("rdi") ptr => _,
         in("rax") 0u64,
         options(nostack, preserves_flags),
-    ) };
+    ); }
 }
 
 pub fn alloc_page_range(count: usize) -> Option<PhysAddr> {
@@ -66,7 +66,7 @@ pub fn init(memory_map: &MemmapRespData, phys_offset: u64) -> usize {
 
     let mut total_frames = 0usize;
 
-    for entry in memory_map.entries().iter() {
+    for entry in memory_map.entries() {
         if entry.type_ != MEMMAP_USABLE {
             continue;
         }
@@ -111,5 +111,5 @@ pub fn free_frames(addr: PhysAddr, order: usize) {
 }
 
 pub fn try_upgrade_hhdm(phys: PhysAddr, order: usize) {
-    super::page_table::try_upgrade_hhdm(phys, order)
+    super::page_table::try_upgrade_hhdm(phys, order);
 }

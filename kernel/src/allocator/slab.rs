@@ -21,7 +21,7 @@ struct BlockInfo {
     used: bool,
 }
 
-pub(crate) struct PageSlab<const MAX_BLOCKS: usize> {
+pub struct PageSlab<const MAX_BLOCKS: usize> {
     blocks: [BlockInfo; MAX_BLOCKS],
     block_count: usize,
     offset: u64,
@@ -44,7 +44,7 @@ impl<const MAX_BLOCKS: usize> PageSlab<MAX_BLOCKS> {
         }
     }
 
-    pub fn set_offset(&mut self, offset: u64) { self.offset = offset }
+    pub const fn set_offset(&mut self, offset: u64) { self.offset = offset }
 
     pub fn allocate(&mut self, count: usize) -> Option<u64> {
         for i in 0..self.block_count {
@@ -93,7 +93,7 @@ impl<const MAX_BLOCKS: usize> PageSlab<MAX_BLOCKS> {
         for i in 0..self.block_count {
             let b = &self.blocks[i];
             if !b.used { continue }
-            let end = b.phys_base + (b.total_blocks as u64) * self.block_size as u64;
+            let end = b.phys_base + u64::from(b.total_blocks) * self.block_size as u64;
             if addr >= b.phys_base && addr < end { return Some(i) }
         }
         None
@@ -102,9 +102,9 @@ impl<const MAX_BLOCKS: usize> PageSlab<MAX_BLOCKS> {
     fn alloc_in_block(&mut self, idx: usize, count: usize) -> Option<u64> {
         let offset = self.offset;
         let block_size = self.block_size;
-        let block_ptr: *mut BlockInfo = &mut self.blocks[idx];
+        let block_ptr: *mut BlockInfo = &raw mut self.blocks[idx];
 
-        let mut prev_field: *mut u64 = unsafe { &mut (*block_ptr).free_list };
+        let mut prev_field: *mut u64 = unsafe { &raw mut (*block_ptr).free_list };
         let mut current = unsafe { (*block_ptr).free_list };
 
         while current != 0 {
@@ -127,7 +127,7 @@ impl<const MAX_BLOCKS: usize> PageSlab<MAX_BLOCKS> {
                 unsafe { (*block_ptr).allocated_blocks += count as u32; }
                 return Some(result);
             }
-            prev_field = &mut range.next;
+            prev_field = &raw mut range.next;
             current = rnext;
         }
         None

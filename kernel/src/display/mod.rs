@@ -1,5 +1,5 @@
 mod framebuffer;
-pub(crate) mod terminal;
+mod terminal;
 
 pub use framebuffer::FrameBuffer;
 pub use terminal::Terminal;
@@ -22,11 +22,11 @@ impl Color {
 
     pub const fn as_u32(&self) -> u32 { self.0 }
 
-    pub const BLACK:   Color = Color::from_rgb(0x000000);
-    pub const WHITE:   Color = Color::from_rgb(0xFFFFFF);
-    pub const RED:     Color = Color::from_rgb(0xFF0000);
-    pub const GREEN:   Color = Color::from_rgb(0x00FF00);
-    pub const YELLOW:  Color = Color::from_rgb(0xFFFF00);
-    pub const CYAN:    Color = Color::from_rgb(0x00FFFF);
-    pub const MAGENTA: Color = Color::from_rgb(0xFF00FF);
+    pub const BLACK:   Self = Self::from_rgb(0x00_00_00);
+    pub const WHITE:   Self = Self::from_rgb(0xFF_FF_FF);
+    pub const RED:     Self = Self::from_rgb(0xFF_00_00);
+    pub const GREEN:   Self = Self::from_rgb(0x00_FF_00);
+    pub const YELLOW:  Self = Self::from_rgb(0xFF_FF_00);
+    pub const CYAN:    Self = Self::from_rgb(0x00_FF_FF);
+    pub const MAGENTA: Self = Self::from_rgb(0xFF_00_FF);
 }

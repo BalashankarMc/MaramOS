@@ -8,21 +8,21 @@ use spin::{Mutex, MutexGuard};
 use core::{mem::ManuallyDrop, ops::{Deref, DerefMut}};
 use x86_64::instructions::interrupts;
 
-/// An Interrupt-safe wrapper around a Spin::Mutex
+/// An Interrupt-safe wrapper around a `Spin::Mutex`
 pub struct InterruptMutex<T>(Mutex<T>);
 
 unsafe impl<T> Sync for InterruptMutex<T> {}
 
-/// An Interrupt-safe wrapper around a Spin::MutexGuard. Implements Drop and restores previous interrupt status on drop.
+/// An Interrupt-safe wrapper around a `Spin::MutexGuard`. Implements Drop and restores previous interrupt status on drop.
 pub struct InterruptGuard<'a, T>(ManuallyDrop<MutexGuard<'a, T>>, bool);
 
 impl<T> InterruptMutex<T> {
-    /// Creates a new instance of InterruptMutex
+    /// Creates a new instance of `InterruptMutex`
     pub const fn new(value: T) -> Self {
         Self(Mutex::new(value))
     }
 
-    /// Locks the Mutex, disables interrupts and returns a MutexGuard
+    /// Locks the Mutex, disables interrupts and returns a `MutexGuard`
     pub fn lock(&self) -> InterruptGuard<'_, T> {
         let int_status = interrupts::are_enabled();
         interrupts::disable();
@@ -33,24 +33,24 @@ impl<T> InterruptMutex<T> {
     pub fn try_lock(&self) -> Option<InterruptGuard<'_, T>> {
         let int_status = interrupts::are_enabled();
         interrupts::disable();
-        match self.0.try_lock() {
-            Some(guard) => Some(InterruptGuard(ManuallyDrop::new(guard), int_status)),
-            None => {
-                if int_status {
-                    interrupts::enable();
-                }
-                None
-            }
-        }
+
+        self.0.try_lock().map_or_else(
+            || { interrupts::enable(); None },
+            |g| Some(InterruptGuard::from_mutex_guard(g, int_status))
+        )
+    }
+}
+
+impl<'a, T> InterruptGuard<'a, T> {
+    const fn from_mutex_guard(g: MutexGuard<'a, T>, int_status: bool) -> Self {
+        Self(ManuallyDrop::new(g), int_status)
     }
 }
 
 impl<T> Drop for InterruptGuard<'_, T> {
     fn drop(&mut self) {
         unsafe { ManuallyDrop::drop(&mut self.0) };
-        if self.1 {
-            interrupts::enable()
-        }
+        if self.1 { interrupts::enable() }
     }
 }
 
