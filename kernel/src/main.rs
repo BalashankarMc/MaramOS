@@ -2,6 +2,7 @@
 #![no_main]
 #![allow(dead_code, clippy::cast_possible_truncation)]
 #![deny(clippy::all)]
+#![feature(abi_x86_interrupt)]
 
 extern crate alloc;
 
@@ -10,6 +11,7 @@ mod helpers;
 mod requests;
 mod memory;
 mod allocator;
+mod descriptors;
 
 #[macro_use]
 mod stdout;
@@ -24,6 +26,7 @@ extern "C" fn kmain() -> ! {
     log_success!("Framebuffer initialized!");
 
     memory::init();
+    descriptors::init();
 
     log_success!("Kernel ready");
     halt_loop()
