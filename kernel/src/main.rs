@@ -16,6 +16,7 @@ mod descriptors;
 #[macro_use]
 mod stdout;
 
+
 #[unsafe(no_mangle)]
 extern "C" fn kmain() -> ! {
     // Framebuffer initialisation
@@ -25,16 +26,18 @@ extern "C" fn kmain() -> ! {
     stdout::clear();
     log_success!("Framebuffer initialized!");
 
-    memory::init();
+    memory::init().unwrap();
     descriptors::init();
 
     log_success!("Kernel ready");
+
     halt_loop()
 }
 
 fn halt_loop() -> ! {
     loop { x86_64::instructions::hlt() }
 }
+
 
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {

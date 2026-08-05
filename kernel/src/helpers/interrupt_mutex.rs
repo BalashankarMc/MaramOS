@@ -9,11 +9,13 @@ use core::{mem::ManuallyDrop, ops::{Deref, DerefMut}};
 use x86_64::instructions::interrupts;
 
 /// An Interrupt-safe wrapper around a `Spin::Mutex`
+#[derive(Debug)]
 pub struct InterruptMutex<T>(Mutex<T>);
 
 unsafe impl<T> Sync for InterruptMutex<T> {}
 
 /// An Interrupt-safe wrapper around a `Spin::MutexGuard`. Implements Drop and restores previous interrupt status on drop.
+#[derive(Debug)]
 pub struct InterruptGuard<'a, T>(ManuallyDrop<MutexGuard<'a, T>>, bool);
 
 impl<T> InterruptMutex<T> {

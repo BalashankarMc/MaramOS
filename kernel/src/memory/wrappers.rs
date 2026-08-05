@@ -1,133 +1,100 @@
-//! RAII wrappers for physical pages, DMA buffers, and virtual memory areas.
-//!
-//! [`PhysPage`] represents a physically-contiguous set of pages with
-//! automatic deallocation on drop. [`DMABuffer`] provides DMA-safe
-//! allocations. [`VirtualMemoryArea`] describes demand-paged user
-//! mappings with backing store information.
+use core::marker::PhantomData;
 
-use super::{paging::{alloc_page_range, free_page_range}, phys_to_virt};
+use x86_64::{PhysAddr, VirtAddr, structures::paging::PageTableFlags};
 
-use x86_64::{PhysAddr, VirtAddr, structures::paging::{PageSize, PageTableFlags, Size4KiB}};
+use crate::memory::{PAGE_SIZE, virt::VirtualRegion};
 
-/// A Struct representing a physically contiguous set of memory pages.
-/// Implements Drop.
-#[derive(Debug)]
+/// A representation of physical page ranges
 pub struct PhysPage {
-    start: PhysAddr,
-    page_count: usize,
+    start: VirtAddr,
+    // Number of 4KiB Pages in this range
+    pub count: usize,
+    phys: PhysAddr
+}
+
+impl PhysPage {
+    pub fn new(count: usize) -> Option<Self> {
+        let start = super::physical::alloc_pages(count)?;
+        Some(Self {
+            start,
+            count,
+            phys: unsafe { super::virt_to_phys(start) }
+        })
+    }
+
+    /// Read some data of type `T` from `offset` bytes into the page.
+    /// Returns Some(&T) on success and None on OOB
+    pub fn read_data<T>(&self, offset: usize) -> Option<&T> {
+        if self.count * PAGE_SIZE < offset + size_of::<T>() { return None }
+
+        Some(unsafe { &*(self.start + offset as u64).as_ptr::<T>() })
+    }
+
+    /// Write some data of type `T` into the page after `offset` bytes into the page
+    /// Returns true on success and false on OOB
+    pub fn write_data<T>(&self, offset: usize, data: &T) -> bool {
+        if self.count * PAGE_SIZE < offset + size_of::<T>() { return false }
+
+        let src = core::ptr::from_ref(data);
+        let dst = (self.start + offset as u64).as_mut_ptr::<T>();
+        
+        // Safety: `src` is derived from a reference and dst was pre-validated, so this is safe.
+        unsafe { core::ptr::copy(src, dst, 1) };
+
+        true
+    }
+
+    pub const fn address(&self) -> VirtAddr { self.start }
 }
 
 impl Drop for PhysPage {
     fn drop(&mut self) {
-        if self.page_count == 0 { return }
-        free_page_range(self.start, self.page_count);
+        super::physical::free_frames(self.phys, self.count);
     }
 }
 
-impl PhysPage {
-    /// DO NOT USE MANUALLY
-    pub(crate) const fn new(start: PhysAddr, pages: usize) -> Self {
-        Self {
-            start,
-            page_count: pages,
-        }
+/// A helper for Memory-Mapped I/O
+pub struct MMIORegion(VirtualRegion);
+
+impl MMIORegion {
+    /// Map `pages` pages starting at `phys` with MMIO flags
+    pub fn new(phys: PhysAddr, pages: usize) -> Option<Self> {
+        let mut region = VirtualRegion::new(pages)?;
+        if region.map(phys, PageTableFlags::NO_CACHE | PageTableFlags::NO_EXECUTE).is_err() { return None }
+        Some(Self(region))
     }
 
-    /// Obtain the Physical Address of the start of the page segment
-    pub const fn get_phys_address(&self) -> PhysAddr { self.start }
+    /// Volatile read of T at byte `offset` from the base
+    pub fn read<T>(&self, offset: usize) -> T {
+        let ptr = self.0.address() + offset as u64;
 
-    /// Obtain the Virtual Address of the start of the page segment
-    pub fn get_virt_addr(&self) -> VirtAddr { phys_to_virt(self.start) }
-
-    /// Write data <T> to the given offset from the start of the page segment
-    ///
-    /// # Safety
-    /// Ensure the offset is not outside the range of the segment
-    pub fn write_data<T>(&self, offset: usize, data: T) {
-        let base = self.get_virt_addr().as_mut_ptr::<u8>();
-
-        unsafe {
-            let address = base.add(offset).cast::<T>();
-            address.write_volatile(data);
-        }
+        // Safety: As long as `self` is in scope, the memory region is guaranteed to be backed. Safe.
+        unsafe { ptr.as_ptr::<T>().read_volatile() }
     }
 
-    /// Read data <T> from the given offset from the start of the page segment
-    /// Returns a stack-copy of the data
-    ///
-    /// # Safety
-    /// Ensure the offset is not outside the range of the segment
-    pub fn read_data<T: Copy>(&self, offset: usize) -> T {
-        let base = self.get_virt_addr().as_mut_ptr::<u8>();
+    /// Volatile write of T at byte `offset` from the base
+    pub fn write<T>(&self, offset: usize, val: T) {
+        let ptr = self.0.address() + offset as u64;
 
-        unsafe {
-            let address = base.add(offset) as *const T;
-            address.read_volatile()
-        }
+        // Safety: As long as `self` is in scope, the memory region is guaranteed to be backed. Safe.
+        unsafe { ptr.as_mut_ptr::<T>().write_volatile(val) }
     }
 
-    /// Returns the number of pages in the segment
-    pub const fn size(&self) -> usize { self.page_count }
+    pub fn register<T>(&self, offset: usize) -> Option<MMIORegister<'_, T>> {
+        if !offset.is_multiple_of(align_of::<T>()) { return None }
 
-    /// Leak the page segment to prevent it from being dropped
-    pub const fn leak(self) -> (PhysAddr, usize) {
-        let data = (self.start, self.page_count);
-        core::mem::forget(self);
-        data
+        let ptr = self.0.address() + offset as u64;
+        Some(MMIORegister { ptr: ptr.as_mut_ptr(), _marker: PhantomData })
     }
 }
 
-pub enum VMABacking {
-    Anonymous,
-    File {
-        cache: PhysPage,
-        data_offset: u64,
-        file_size: u64,
-    },
+/// Wrapper around a single MMIO Register
+pub struct MMIORegister<'a, T> {
+    ptr: *mut T,
+    _marker: PhantomData<&'a mut T>
 }
 
-pub struct VirtualMemoryArea {
-    start: u64,
-    end: u64,
-    perms: PageTableFlags,
-    backing: VMABacking,
-}
-
-impl VirtualMemoryArea {
-    pub const fn new(start: u64, end: u64, perms: PageTableFlags, backing: VMABacking) -> Self {
-        Self { start, end, perms, backing }
-    }
-
-    pub const fn start(&self) -> u64 { self.start }
-    pub const fn end(&self) -> u64 { self.end }
-    pub const fn perms(&self) -> PageTableFlags { self.perms }
-    pub const fn backing(&self) -> &VMABacking { &self.backing }
-}
-
-/// A physically‑contiguous DMA buffer backed by exactly the requested
-/// number of pages (no power‑of‑two rounding waste).
-#[derive(Debug)]
-pub struct DMABuffer {
-    phys: PhysAddr,
-    pages: usize,
-}
-
-#[allow(dead_code)]
-impl DMABuffer {
-    pub fn new(size_bytes: usize) -> Option<Self> {
-        let pages = size_bytes.div_ceil(Size4KiB::SIZE as usize);
-        let phys = alloc_page_range(pages)?;
-
-        Some(Self { phys, pages })
-    }
-
-    pub const fn phys(&self) -> PhysAddr { self.phys }
-
-    pub fn virt(&self) -> VirtAddr { phys_to_virt(self.phys) }
-
-    pub const fn size(&self) -> usize { self.pages * (Size4KiB::SIZE as usize) }
-}
-
-impl Drop for DMABuffer {
-    fn drop(&mut self) { free_page_range(self.phys, self.pages); }
+impl<T> MMIORegister<'_, T> {
+    pub fn read(&self) -> T { unsafe { self.ptr.read_volatile() } }
+    pub fn write(&self, val: T) { unsafe { self.ptr.write_volatile(val) } }
 }

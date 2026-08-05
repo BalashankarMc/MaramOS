@@ -19,8 +19,9 @@ build:
 	rm -f /tmp/esp.img
 
 run: build
-	qemu-system-x86_64 -hda $(DISK_IMG) -bios /usr/share/edk2/x64/OVMF.4m.fd
+	qemu-system-x86_64 -hda $(DISK_IMG) -bios /usr/share/edk2/x64/OVMF.4m.fd -m 128M
 
 clean:
 	make -C kernel clean
 	rm kernel.elf
+	rm disk.img

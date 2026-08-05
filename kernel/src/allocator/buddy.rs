@@ -1,9 +1,4 @@
 //! Generic buddy allocator.
-//!
-//! Manages power-of-two memory blocks using free lists per order. Supports
-//! splitting larger blocks on allocation and merging buddies on free. An
-//! optional slab sub-allocator handles non-power-of-two counts via
-//! [`alloc_range`](BuddyAllocator::alloc_range).
 
 use super::slab::PageSlab;
 
@@ -35,23 +30,21 @@ impl<const MIN_ORDER: usize, const ORDER_COUNT: usize, const SLAB_BLOCKS: usize,
 
     pub const fn block_size(order: usize) -> usize { 1 << (order + MIN_ORDER) }
 
-    const fn max_order() -> usize { ORDER_COUNT - 1 }
+    pub const fn max_order() -> usize { ORDER_COUNT - 1 }
 
     const fn ptr(&self, addr: u64) -> *mut u64 { VirtAddr::new(addr + self.offset).as_mut_ptr::<u64>() }
 
     pub const fn buddy_of(addr: u64, order: usize) -> u64 { addr ^ Self::block_size(order) as u64 }
 
     /// # Safety
-    ///
-    /// - `addr` must be a valid unused memory block of the given order.
+    /// `addr` must be a valid unused memory block of the given order.
     pub const unsafe fn push(&mut self, addr: u64, order: usize) {
         unsafe { self.ptr(addr).write(self.heads[order]) }
         self.heads[order] = addr;
     }
 
     /// # Safety
-    ///
-    /// - The free list for `order` must not be empty (check `self.heads[order] != 0` first).
+    /// The free list for `order` must not be empty (check `self.heads[order] != 0` first).
     pub const unsafe fn pop(&mut self, order: usize) -> Option<u64> {
         let head = self.heads[order];
         if head == 0 { return None }
@@ -61,8 +54,7 @@ impl<const MIN_ORDER: usize, const ORDER_COUNT: usize, const SLAB_BLOCKS: usize,
     }
 
     /// # Safety
-    ///
-    /// - `addr` must be a valid entry in the free list for `order`.
+    /// `addr` must be a valid entry in the free list for `order`.
     pub const unsafe fn remove(&mut self, addr: u64, order: usize) -> bool {
         let mut prev_ptr: *mut u64 = &raw mut self.heads[order];
         let mut current = self.heads[order];
@@ -79,7 +71,7 @@ impl<const MIN_ORDER: usize, const ORDER_COUNT: usize, const SLAB_BLOCKS: usize,
         false
     }
 
-    pub fn alloc(&mut self, order: usize) -> Option<u64> {
+    fn alloc(&mut self, order: usize) -> Option<u64> {
         if order > Self::max_order() { return None }
 
         let mut found = order;
@@ -100,28 +92,20 @@ impl<const MIN_ORDER: usize, const ORDER_COUNT: usize, const SLAB_BLOCKS: usize,
         Some(block)
     }
 
-    pub fn free(&mut self, addr: u64, order: usize) {
+    fn free(&mut self, addr: u64, order: usize) {
         self.free_with(addr, order, |_, _| true);
     }
 
     pub fn free_with(&mut self, addr: u64, order: usize, can_merge: impl Fn(u64, usize) -> bool) {
-        if order > Self::max_order() {
-            return;
-        }
+        if order > Self::max_order() { return }
         let mut addr = addr;
         let mut order = order;
 
         loop {
-            if order == Self::max_order() {
-                break;
-            }
+            if order == Self::max_order() { break }
             let buddy = Self::buddy_of(addr, order);
-            if !can_merge(buddy, order) {
-                break;
-            }
-            if !unsafe { self.remove(buddy, order) } {
-                break;
-            }
+            if !can_merge(buddy, order) { break }
+            if !unsafe { self.remove(buddy, order) } { break }
             addr = addr.min(buddy);
             order += 1;
         }
@@ -152,9 +136,7 @@ impl<const MIN_ORDER: usize, const ORDER_COUNT: usize, const SLAB_BLOCKS: usize,
     /// Free exactly `count` contiguous blocks at `addr`.
     /// Routes through the slab sub-allocator if the address is slab-managed.
     pub fn free_range(&mut self, addr: u64, count: usize) {
-        if count == 0 {
-            return;
-        }
+        if count == 0 { return }
         if HAS_SLAB && self.slab.owns(addr) {
             self.slab.free(addr, count);
             return;
