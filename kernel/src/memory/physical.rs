@@ -9,7 +9,7 @@ type Buddy = BuddyAllocator<12, 19, 64, true>;
 static ALLOCATOR: InterruptMutex<Buddy> = InterruptMutex::new(BuddyAllocator::new());
 
 /// Initialize the physical page allocator
-pub fn init() -> Result<usize, super::MemoryError> {
+pub fn init() -> Result<(), super::MemoryError> {
     let mut alloc = ALLOCATOR.lock();
     let mmap = crate::requests::MMAP_REQUEST.response()
         .ok_or(super::MemoryError::InvalidRequestResponse)?.entries();
@@ -40,7 +40,7 @@ pub fn init() -> Result<usize, super::MemoryError> {
         }
     }
 
-    Ok(9)
+    Ok(())
 }
 
 /// Zero `count` pages starting at `start`
@@ -125,7 +125,7 @@ fn try_upgrade_hhdm(phys: PhysAddr, order: usize) {
         // Already a huge page
         if l2_entry.flags().contains(PageTableFlags::HUGE_PAGE) { return }
 
-        free_frames(l2_entry.addr(), 0);
+        free_frames(l2_entry.addr(), 1);
         l2_entry.set_addr(phys, flags);                  
     }
 }

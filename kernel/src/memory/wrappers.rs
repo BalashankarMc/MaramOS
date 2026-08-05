@@ -60,7 +60,8 @@ impl MMIORegion {
     /// Map `pages` pages starting at `phys` with MMIO flags
     pub fn new(phys: PhysAddr, pages: usize) -> Option<Self> {
         let mut region = VirtualRegion::new(pages)?;
-        if region.map(phys, PageTableFlags::NO_CACHE | PageTableFlags::NO_EXECUTE).is_err() { return None }
+        if region.map(phys, PageTableFlags::NO_CACHE | PageTableFlags::NO_EXECUTE | PageTableFlags::GLOBAL)
+            .is_err() { return None }
         Some(Self(region))
     }
 

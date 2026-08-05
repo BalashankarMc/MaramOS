@@ -18,7 +18,8 @@ unsafe fn virt_to_phys(virt: VirtAddr) -> PhysAddr { PhysAddr::new(virt.as_u64()
 #[derive(Debug)]
 pub enum MemoryError {
     InvalidRequestResponse,
-    OutOfMemory
+    OutOfMemory,
+    InvalidMapping
 }
 
 pub fn init() -> Result<(), MemoryError> {

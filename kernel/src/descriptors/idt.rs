@@ -18,5 +18,5 @@ extern "x86-interrupt" fn bp_handler(stack_frame: InterruptStackFrame) {
 extern "x86-interrupt" fn pf_handler(stack_frame: InterruptStackFrame, err_code: PageFaultErrorCode) {
     let addr = Cr2::read().unwrap().as_u64();
 
-    panic!("Page Fault\nAccessed address: {addr:2X}\nError Code: {err_code:?}\nStack frame:{stack_frame:#?}");
+    panic!("Page Fault\nAccessed address: 0x{addr:2X}\nError Code: {err_code:?}\nStack frame:{stack_frame:#?}");
 }
