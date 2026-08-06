@@ -8,8 +8,8 @@ const FONT: simple_psf::Psf = match simple_psf::Psf::parse(include_bytes!("../..
     Err(_) => panic!("font.psfu is not a valid PSF file"),
 };
 
-pub struct Terminal<'a> {
-    fb: FrameBuffer<'a>,
+pub struct Terminal {
+    fb: FrameBuffer,
     cursor_col: usize,
     cursor_row: usize,
     fg: Color,
@@ -18,11 +18,11 @@ pub struct Terminal<'a> {
     rows: usize,
 }
 
-impl<'a> Terminal<'a> {
-    pub const fn new(fb: FrameBuffer<'a>) -> Self {
+impl Terminal {
+    pub const fn new(fb: FrameBuffer) -> Self {
         let cols = fb.width() / FONT.glyph_width;
         let rows = fb.height() / FONT.glyph_height;
-        Terminal {
+        Self {
             fb,
             cursor_col: 0,
             cursor_row: 0,
@@ -126,7 +126,7 @@ impl<'a> Terminal<'a> {
     }
 }
 
-impl fmt::Write for Terminal<'_> {
+impl fmt::Write for Terminal {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         self.print_str(s);
         Ok(())

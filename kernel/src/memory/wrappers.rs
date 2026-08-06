@@ -13,6 +13,7 @@ pub struct PhysPage {
 }
 
 impl PhysPage {
+    /// Allocate a new range of `count` pages
     pub fn new(count: usize) -> Option<Self> {
         let start = super::physical::alloc_pages(count)?;
         Some(Self {
@@ -24,24 +25,32 @@ impl PhysPage {
 
     /// Read some data of type `T` from `offset` bytes into the page.
     /// Returns Some(&T) on success and None on OOB
-    pub fn read_data<T>(&self, offset: usize) -> Option<&T> {
+    pub fn read_data<T>(&self, offset: usize) -> Option<T> {
         if self.count * PAGE_SIZE < offset + size_of::<T>() { return None }
+        if !offset.is_multiple_of(align_of::<T>()) { return None }
 
-        Some(unsafe { &*(self.start + offset as u64).as_ptr::<T>() })
+        // Safety: We did bounds checking and address validation already. Safe
+        Some(unsafe { (self.start + offset as u64).as_ptr::<T>().read() })
     }
 
     /// Write some data of type `T` into the page after `offset` bytes into the page
     /// Returns true on success and false on OOB
-    pub fn write_data<T>(&self, offset: usize, data: &T) -> bool {
+    pub fn write_data<T>(&self, offset: usize, data: T) -> bool {
         if self.count * PAGE_SIZE < offset + size_of::<T>() { return false }
 
-        let src = core::ptr::from_ref(data);
-        let dst = (self.start + offset as u64).as_mut_ptr::<T>();
-        
-        // Safety: `src` is derived from a reference and dst was pre-validated, so this is safe.
-        unsafe { core::ptr::copy(src, dst, 1) };
+        let ptr = self.start + offset as u64;
+        if !offset.is_multiple_of(align_of::<T>()) { return false }
+
+        // Safety: We did bounds checking and address validation already. Safe
+        unsafe { ptr.as_mut_ptr::<T>().write(data) }
 
         true
+    }
+
+    pub const fn leak(self) -> (VirtAddr, PhysAddr, usize) {
+        let res = (self.start, self.phys, self.count);
+        core::mem::forget(self);
+        res
     }
 
     pub const fn address(&self) -> VirtAddr { self.start }

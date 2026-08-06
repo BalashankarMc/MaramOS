@@ -1,7 +1,7 @@
 //! One-shot lazy initialization container.
 //!
-//! [`LateInit`] holds a `MaybeUninit<T>` behind an `AtomicBool` flag.
-//! It is `Sync` when `T: Send`, allowing cross-thread initialization.
+//! `LateInit` holds a `MaybeUninit<T>` behind an `AtomicBool` flag.
+//! It is `Sync` when `T: Send + Sync`, allowing cross-thread initialization.
 //! Panics if accessed before `init` or initialized twice.
 
 use core::cell::UnsafeCell;
@@ -14,7 +14,7 @@ pub struct LateInit<T> {
     data: UnsafeCell<MaybeUninit<T>>,
 }
 
-unsafe impl<T: Send> Sync for LateInit<T> {}
+unsafe impl<T: Send + Sync> Sync for LateInit<T> {}
 
 impl<T> LateInit<T> {
     pub const fn new() -> Self {

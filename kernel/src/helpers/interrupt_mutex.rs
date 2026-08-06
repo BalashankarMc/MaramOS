@@ -12,7 +12,7 @@ use x86_64::instructions::interrupts;
 #[derive(Debug)]
 pub struct InterruptMutex<T>(Mutex<T>);
 
-unsafe impl<T> Sync for InterruptMutex<T> {}
+unsafe impl<T: Send> Sync for InterruptMutex<T> {}
 
 /// An Interrupt-safe wrapper around a `Spin::MutexGuard`. Implements Drop and restores previous interrupt status on drop.
 #[derive(Debug)]
@@ -37,7 +37,7 @@ impl<T> InterruptMutex<T> {
         interrupts::disable();
 
         self.0.try_lock().map_or_else(
-            || { interrupts::enable(); None },
+            || { if int_status { interrupts::enable() } None },
             |g| Some(InterruptGuard::from_mutex_guard(g, int_status))
         )
     }

@@ -27,6 +27,9 @@ pub fn init() -> Result<(), super::MemoryError> {
     Ok(())
 }
 
+fn layout_to_size(layout: core::alloc::Layout) -> usize {
+    layout.size().max(16).div_ceil(16).max(layout.align() / 16)
+}
 
 struct KernelHeap;
 
@@ -35,10 +38,10 @@ static HEAP_ALLOCATOR: KernelHeap = KernelHeap;
 
 unsafe impl GlobalAlloc for KernelHeap {
     unsafe fn alloc(&self, layout: core::alloc::Layout) -> *mut u8 {
-        ALLOCATOR.lock().alloc_range(layout.size().max(16).div_ceil(16)).unwrap_or(0) as *mut u8
+        ALLOCATOR.lock().alloc_range(layout_to_size(layout)).unwrap_or(0) as *mut u8
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: core::alloc::Layout) {
-        ALLOCATOR.lock().free_range(ptr as u64, layout.size().max(16).div_ceil(16));
+        ALLOCATOR.lock().free_range(ptr as u64, layout_to_size(layout));
     }
 }

@@ -2,12 +2,11 @@ use core::fmt;
 use crate::display::{Color, FrameBuffer, Terminal};
 use crate::helpers::InterruptMutex;
 
-static TERMINAL: InterruptMutex<Option<Terminal<'static>>> = InterruptMutex::new(None);
+static TERMINAL: InterruptMutex<Option<Terminal>> = InterruptMutex::new(None);
 
-pub fn init(fb_raw: &'static limine::framebuffer::Framebuffer) -> &'static InterruptMutex<Option<Terminal<'static>>> {
+pub fn init(fb_raw: &'static limine::framebuffer::Framebuffer) {
     let fb = FrameBuffer::new(fb_raw);
     *TERMINAL.lock() = Some(Terminal::new(fb));
-    &TERMINAL
 }
 
 pub fn clear() {
@@ -81,7 +80,7 @@ macro_rules! log_success {
 }
 
 #[macro_export]
-macro_rules! warn {
+macro_rules! log_warn {
     ($($arg:tt)*) => ($crate::stdout::log_warn(format_args!($($arg)*)));
 }
 

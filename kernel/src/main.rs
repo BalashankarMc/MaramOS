@@ -27,7 +27,7 @@ extern "C" fn kmain() -> ! {
     log_success!("Framebuffer initialized!");
 
     memory::init().unwrap();
-    descriptors::init();
+    descriptors::init().unwrap();
 
     log_success!("Kernel ready");
 

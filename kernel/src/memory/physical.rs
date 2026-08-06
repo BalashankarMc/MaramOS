@@ -72,7 +72,7 @@ pub fn alloc_pages(count: usize) -> Option<VirtAddr> {
 
     // Safety: We just allocated the memory. This is safe
     unsafe { zero_pages(virt, count) };
-    try_upgrade_hhdm(start, count.next_power_of_two().trailing_zeros() as usize);
+    try_upgrade_hhdm(start, count);
 
     Some(virt)
 }
@@ -92,7 +92,10 @@ pub fn get_pagetable(e: &PageTableEntry) -> &mut PageTable {
     unsafe { &mut *phys_to_virt(e.addr()).as_mut_ptr::<PageTable>() }
 }
 
-fn try_upgrade_hhdm(phys: PhysAddr, order: usize) {
+fn try_upgrade_hhdm(phys: PhysAddr, count: usize) {
+    const PAGES_2MIB: usize = (Size2MiB::SIZE as usize) / PAGE_SIZE; // 512
+    const PAGES_1GIB: usize = (Size1GiB::SIZE as usize) / PAGE_SIZE; // 262144
+
     // Safety: Not a 'static. Safe
     let l4 = unsafe { active_l4_table() };
 
@@ -102,30 +105,38 @@ fn try_upgrade_hhdm(phys: PhysAddr, order: usize) {
     let l3_index = virt.p3_index();
     let l2_index = virt.p2_index();
 
+    if l4[l4_index].is_unused() || l4[l4_index].flags().contains(PageTableFlags::HUGE_PAGE) { return }
+
     let l3 = get_pagetable(&l4[l4_index]);
     let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::GLOBAL | PageTableFlags::HUGE_PAGE;
 
-    if order >= 18 && phys.is_aligned(Size1GiB::SIZE) {
+    if count == PAGES_1GIB && phys.is_aligned(Size1GiB::SIZE) {
         let l3_entry = &mut l3[l3_index];
-        
-        // Already a huge page.
-        if l3_entry.flags().contains(PageTableFlags::HUGE_PAGE) { return }
+
+        // Already a huge page, or not an L2 page-table frame.
+        if l3_entry.is_unused() || l3_entry.flags().contains(PageTableFlags::HUGE_PAGE) { return }
 
         let l2 = get_pagetable(l3_entry);
         for l2_entry in l2.iter() {
-            if l2_entry.is_unused() { continue }
+            if l2_entry.is_unused() || l2_entry.flags().contains(PageTableFlags::HUGE_PAGE) { continue }
             free_frames(l2_entry.addr(), 1);
         }
+
         free_frames(l3_entry.addr(), 1);
         l3_entry.set_addr(phys, flags);
-    } else if order >= 9 && phys.is_aligned(Size2MiB::SIZE) {
-        let l2 = get_pagetable(&l3[l3_index]);
+    } else if count == PAGES_2MIB && phys.is_aligned(Size2MiB::SIZE) {
+        let l3_entry = &l3[l3_index];
+
+        // Must be an L2 page table, not a huge page / unused.
+        if l3_entry.is_unused() || l3_entry.flags().contains(PageTableFlags::HUGE_PAGE) { return }
+
+        let l2 = get_pagetable(l3_entry);
         let l2_entry = &mut l2[l2_index];
 
-        // Already a huge page
-        if l2_entry.flags().contains(PageTableFlags::HUGE_PAGE) { return }
+        // Already a huge page — nothing to free.
+        if l2_entry.is_unused() || l2_entry.flags().contains(PageTableFlags::HUGE_PAGE) { return }
 
         free_frames(l2_entry.addr(), 1);
-        l2_entry.set_addr(phys, flags);                  
+        l2_entry.set_addr(phys, flags);
     }
 }
