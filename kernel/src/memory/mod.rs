@@ -1,7 +1,7 @@
 //! Kernel Memory Module
 
 use x86_64::{PhysAddr, VirtAddr, structures::paging::{PageSize, Size4KiB}};
-use crate::{helpers::LateInit, requests::HHDM_REQUEST};
+use crate::{HHDM_RESPONSE, KernelResult, LateInit};
 
 mod physical;
 mod wrappers;
@@ -12,21 +12,14 @@ pub const PAGE_SIZE: usize = Size4KiB::SIZE as usize;
 
 pub static HHDM_OFFSET: LateInit<u64> = LateInit::new();
 
-fn phys_to_virt(phys: PhysAddr) -> VirtAddr { VirtAddr::new(phys.as_u64() + *HHDM_OFFSET) }
+pub fn phys_to_virt(phys: PhysAddr) -> VirtAddr { VirtAddr::new(phys.as_u64() + *HHDM_OFFSET) }
 unsafe fn virt_to_phys(virt: VirtAddr) -> PhysAddr { PhysAddr::new(virt.as_u64() - *HHDM_OFFSET) }
 
-#[derive(Debug)]
-pub enum MemoryError {
-    InvalidRequestResponse,
-    OutOfMemory,
-    InvalidMapping
-}
 
-pub fn init() -> Result<(), MemoryError> {
-    let hhdm_offset = HHDM_REQUEST.response().ok_or(MemoryError::InvalidRequestResponse)?.offset;
-    HHDM_OFFSET.init(hhdm_offset);
+pub fn init() -> KernelResult<()> {
+    HHDM_OFFSET.init(HHDM_RESPONSE.offset);
 
-    physical::init()?;
+    physical::init();
     heap::init()?;
     virt::init();
 

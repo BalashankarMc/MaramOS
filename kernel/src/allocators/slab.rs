@@ -54,8 +54,8 @@ impl<const MAX_BLOCKS: usize> PageSlab<MAX_BLOCKS> {
         None
     }
 
-    pub fn free(&mut self, addr: u64, count: usize) {
-        let Some(idx) = self.find_block(addr) else { return };
+    pub fn free(&mut self, addr: u64, count: usize) -> Option<(u64, u32)> {
+        let idx = self.find_block(addr)?;
         let free_list = self.blocks[idx].free_list;
         let offset = self.offset;
         unsafe {
@@ -64,20 +64,26 @@ impl<const MAX_BLOCKS: usize> PageSlab<MAX_BLOCKS> {
             fr.count = count as u32;
         }
         self.blocks[idx].free_list = addr;
-        self.blocks[idx].allocated_blocks = self.blocks[idx].allocated_blocks.saturating_sub(count as u32);
+
+        let rem = self.blocks[idx].allocated_blocks.checked_sub(count as u32)?;
+
+        self.blocks[idx].allocated_blocks = rem;
+        if rem != 0 { return None }
+    
+        let (base, total) = (self.blocks[idx].phys_base, self.blocks[idx].total_blocks);
+        self.blocks[idx].used = false;
+        Some((base, total))
     }
 
-    pub fn add_block(&mut self, phys_base: u64, total_blocks: u32) {
-        if self.block_count >= MAX_BLOCKS { return }
-        let idx = self.block_count;
-        self.block_count += 1;
-        self.blocks[idx] = BlockInfo {
-            phys_base,
-            total_blocks,
-            allocated_blocks: 0,
-            free_list: 0,
-            used: true,
-        };
+    pub fn add_block(&mut self, phys_base: u64, total_blocks: u32) -> bool {
+        let idx =
+            if let Some(i) = self.blocks[..self.block_count].iter().position(|b| !b.used) { i }
+            else if self.block_count < MAX_BLOCKS {
+                let i = self.block_count;
+                self.block_count += 1;
+                i
+            } else { return false };
+        self.blocks[idx] = BlockInfo { phys_base, total_blocks, allocated_blocks: 0, free_list: 0, used: true };
         let offset = self.offset;
         unsafe {
             let fr = &mut *(VirtAddr::new(phys_base + offset).as_mut_ptr::<FreeRange>());
@@ -85,6 +91,7 @@ impl<const MAX_BLOCKS: usize> PageSlab<MAX_BLOCKS> {
             fr.count = total_blocks;
         }
         self.blocks[idx].free_list = phys_base;
+        true
     }
 
     pub fn owns(&self, addr: u64) -> bool { self.find_block(addr).is_some() }

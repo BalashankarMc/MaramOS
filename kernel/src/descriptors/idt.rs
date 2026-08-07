@@ -35,7 +35,7 @@ extern "x86-interrupt" fn page_fault(stack_frame: InterruptStackFrame, err_code:
 }
 
 extern "x86-interrupt" fn general_protection_fault(stack_frame: InterruptStackFrame, err_code: u64) {
-    panic!("General Protection Fault!\nError Code: {err_code}\nStack Frame: {stack_frame:?}")
+    panic!("General Protection Fault!\nError Code: {err_code}\nStack Frame: {stack_frame:#?}")
 }
 
 extern "x86-interrupt" fn invalid_opcode(_stack_frame: InterruptStackFrame) {
@@ -52,4 +52,9 @@ extern "x86-interrupt" fn non_maskable_interrupt(_stack_frame: InterruptStackFra
 
 extern "x86-interrupt" fn machine_check(_stack_frame: InterruptStackFrame) -> ! {
     panic!("Machine Check!")
+}
+
+pub enum HardwareInterrupts {
+    Timer,
+    Keyboard
 }

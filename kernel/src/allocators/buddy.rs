@@ -35,9 +35,10 @@ impl<const MIN_ORDER: usize, const ORDER_COUNT: usize, const SLAB_BLOCKS: usize,
     const fn ptr(&self, addr: u64) -> *mut u64 { VirtAddr::new(addr + self.offset).as_mut_ptr::<u64>() }
 
     pub const fn buddy_of(addr: u64, order: usize) -> u64 { addr ^ Self::block_size(order) as u64 }
-
+    
     /// # Safety
     /// `addr` must be a valid unused memory block of the given order.
+    /// `addr` must not be `0`: `0` is the free-list terminator.
     pub const unsafe fn push(&mut self, addr: u64, order: usize) {
         unsafe { self.ptr(addr).write(self.heads[order]) }
         self.heads[order] = addr;
@@ -118,15 +119,13 @@ impl<const MIN_ORDER: usize, const ORDER_COUNT: usize, const SLAB_BLOCKS: usize,
     /// Non-power-of-two counts optionally use the slab sub-allocator.
     pub fn alloc_range(&mut self, count: usize) -> Option<u64> {
         if HAS_SLAB && !count.is_power_of_two() {
-            if let Some(addr) = self.slab.allocate(count) {
-                return Some(addr);
-            }
+            if let Some(addr) = self.slab.allocate(count) { return Some(addr) }
 
             let order = count.next_power_of_two().trailing_zeros() as usize;
             let block = self.alloc(order)?;
             let total = 1u32 << order;
-            self.slab.add_block(block, total);
-            return self.slab.allocate(count);
+            if self.slab.add_block(block, total) { return self.slab.allocate(count) }
+            return Some(block)
         }
 
         let order = count.next_power_of_two().trailing_zeros() as usize;
@@ -138,7 +137,9 @@ impl<const MIN_ORDER: usize, const ORDER_COUNT: usize, const SLAB_BLOCKS: usize,
     pub fn free_range(&mut self, addr: u64, count: usize) {
         if count == 0 { return }
         if HAS_SLAB && self.slab.owns(addr) {
-            self.slab.free(addr, count);
+            if let Some((base, total)) = self.slab.free(addr, count) {
+                self.free(base, total.trailing_zeros() as usize);
+            }
             return;
         }
         let order = count.next_power_of_two().trailing_zeros() as usize;

@@ -35,12 +35,6 @@ impl FrameBuffer {
         unsafe { self.ptr().add(self.position(x, y)).read_volatile() }
     }
 
-    pub fn set_row(&mut self, y: usize, row: &[u32]) {
-        for (x, &pixel) in row.iter().enumerate().take(self.width) {
-            self.set_pixel(x, y, pixel);
-        }
-    }
-
     pub fn fill_screen(&self, color: u32) {
         let ptr = self.ptr();
         for i in 0..self.size / 4 {

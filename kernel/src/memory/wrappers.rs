@@ -75,23 +75,34 @@ impl MMIORegion {
     }
 
     /// Volatile read of T at byte `offset` from the base
-    pub fn read<T>(&self, offset: usize) -> T {
+    /// 
+    /// # Return
+    /// Returns `Some(T)` on success
+    /// and `None` on OOB
+    pub fn read<T>(&self, offset: usize) -> Option<T> {
+        if offset + size_of::<T>() > self.0.length() { return None }
         let ptr = self.0.address() + offset as u64;
 
         // Safety: As long as `self` is in scope, the memory region is guaranteed to be backed. Safe.
-        unsafe { ptr.as_ptr::<T>().read_volatile() }
+        Some(unsafe { ptr.as_ptr::<T>().read_volatile() })
     }
 
     /// Volatile write of T at byte `offset` from the base
-    pub fn write<T>(&self, offset: usize, val: T) {
+    /// 
+    /// # Returns
+    /// Returns `true` on success and `false` on OOB
+    pub fn write<T>(&self, offset: usize, val: T) -> bool {
+        if offset + size_of::<T>() > self.0.length() { return false }
         let ptr = self.0.address() + offset as u64;
 
         // Safety: As long as `self` is in scope, the memory region is guaranteed to be backed. Safe.
-        unsafe { ptr.as_mut_ptr::<T>().write_volatile(val) }
+        unsafe { ptr.as_mut_ptr::<T>().write_volatile(val) };
+        true
     }
 
     pub fn register<T>(&self, offset: usize) -> Option<MMIORegister<'_, T>> {
         if !offset.is_multiple_of(align_of::<T>()) { return None }
+        if offset + size_of::<T>() > self.0.length() { return None }
 
         let ptr = self.0.address() + offset as u64;
         Some(MMIORegister { ptr: ptr.as_mut_ptr(), _marker: PhantomData })

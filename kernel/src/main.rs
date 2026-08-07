@@ -10,24 +10,30 @@ mod display;
 mod helpers;
 mod requests;
 mod memory;
-mod allocator;
+mod allocators;
 mod descriptors;
+mod errors;
+mod prelude;
 
 #[macro_use]
 mod stdout;
 
+pub use prelude::*;
 
 #[unsafe(no_mangle)]
 extern "C" fn kmain() -> ! {
+
+    requests::init().expect("Failed to initialize requests!");
+
     // Framebuffer initialisation
 
-    let fb_raw = requests::FRAMEBUFFER_REQUEST.response().unwrap().framebuffers()[0];
+    let fb_raw = FB_RESPONSE.framebuffers()[0];
     stdout::init(fb_raw);
     stdout::clear();
     log_success!("Framebuffer initialized!");
 
-    memory::init().unwrap();
-    descriptors::init().unwrap();
+    memory::init().expect("Failed to setup memory!");
+    descriptors::init().expect("Failed to setup descriptors");
 
     log_success!("Kernel ready");
 

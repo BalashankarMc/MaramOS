@@ -16,7 +16,14 @@ pub struct LateInit<T> {
 
 unsafe impl<T: Send + Sync> Sync for LateInit<T> {}
 
+impl<T> Default for LateInit<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T> LateInit<T> {
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             init: AtomicBool::new(false),
@@ -24,6 +31,10 @@ impl<T> LateInit<T> {
         }
     }
 
+    /// Initializes the `LateInit`'s value.
+    /// 
+    /// # Panics
+    /// Panics if the `LateInit` was already initialized
     pub fn init(&self, val: T) -> &T {
         assert!(
             self.init.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_ok(),
@@ -38,6 +49,10 @@ impl<T> LateInit<T> {
         }
     }
 
+    /// Gets the value present in the `LateInit`
+    /// 
+    /// # Panics
+    /// Panics if the `LateInit` was uninitialized
     pub fn get(&self) -> &T {
         assert!(self.init.load(Ordering::Acquire));
         unsafe { (*self.data.get()).assume_init_ref() }

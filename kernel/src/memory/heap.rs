@@ -2,19 +2,19 @@
 
 use core::alloc::GlobalAlloc;
 
-use crate::{allocator::BuddyAllocator, helpers::{InterruptMutex, LateInit}, memory::{PAGE_SIZE, PhysPage}};
+use crate::{KernelResult, allocators::BuddyAllocator, errors::MemoryError, helpers::{InterruptMutex, LateInit}, memory::{PAGE_SIZE, PhysPage}};
 
-type Buddy = BuddyAllocator<4, 17, 0>;
+type Buddy = BuddyAllocator<4, 17, 64, true>;
 
 static ALLOCATOR: InterruptMutex<Buddy> = InterruptMutex::new(BuddyAllocator::new());
 static HEAP_PAGES: LateInit<PhysPage> = LateInit::new();
 
 const HEAP_SIZE: usize = 1024 * 1024;
 
-pub fn init() -> Result<(), super::MemoryError> {
+pub fn init() -> KernelResult<()> {
 
     let pages = PhysPage::new(HEAP_SIZE.div_ceil(PAGE_SIZE))
-        .ok_or(super::MemoryError::OutOfMemory)?;    
+        .ok_or(MemoryError::OutOfMemory)?;    
 
     HEAP_PAGES.init(pages);
 
@@ -28,7 +28,9 @@ pub fn init() -> Result<(), super::MemoryError> {
 }
 
 fn layout_to_size(layout: core::alloc::Layout) -> usize {
-    layout.size().max(16).div_ceil(16).max(layout.align() / 16)
+    let align_units = layout.align().div_ceil(16);
+    let units = layout.size().max(16).div_ceil(16);
+    units.max(align_units).next_multiple_of(align_units)
 }
 
 struct KernelHeap;

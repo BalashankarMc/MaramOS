@@ -2,17 +2,18 @@
 
 use x86_64::{PhysAddr, VirtAddr, registers::control::Cr3, structures::paging::{PageSize, PageTable, PageTableFlags, Size1GiB, Size2MiB, page_table::PageTableEntry}};
 
-use crate::{allocator::BuddyAllocator, helpers::InterruptMutex, memory::{PAGE_SIZE, phys_to_virt}};
+use crate::{MMAP_RESPONSE, allocators::BuddyAllocator, helpers::InterruptMutex, memory::{HHDM_OFFSET, PAGE_SIZE, phys_to_virt}};
 
 type Buddy = BuddyAllocator<12, 19, 64, true>;
 
 static ALLOCATOR: InterruptMutex<Buddy> = InterruptMutex::new(BuddyAllocator::new());
 
 /// Initialize the physical page allocator
-pub fn init() -> Result<(), super::MemoryError> {
+pub fn init() {
     let mut alloc = ALLOCATOR.lock();
-    let mmap = crate::requests::MMAP_REQUEST.response()
-        .ok_or(super::MemoryError::InvalidRequestResponse)?.entries();
+    let mmap = MMAP_RESPONSE.entries();
+
+    alloc.set_offset(*HHDM_OFFSET);
 
     for entry in mmap {
         if entry.type_ != limine::memmap::MEMMAP_USABLE { continue }
@@ -39,8 +40,6 @@ pub fn init() -> Result<(), super::MemoryError> {
             addr += block;
         }
     }
-
-    Ok(())
 }
 
 /// Zero `count` pages starting at `start`
@@ -124,6 +123,8 @@ fn try_upgrade_hhdm(phys: PhysAddr, count: usize) {
 
         free_frames(l3_entry.addr(), 1);
         l3_entry.set_addr(phys, flags);
+        flush_range(virt, PAGES_1GIB);
+
     } else if count == PAGES_2MIB && phys.is_aligned(Size2MiB::SIZE) {
         let l3_entry = &l3[l3_index];
 
@@ -138,5 +139,12 @@ fn try_upgrade_hhdm(phys: PhysAddr, count: usize) {
 
         free_frames(l2_entry.addr(), 1);
         l2_entry.set_addr(phys, flags);
+        flush_range(virt, PAGES_2MIB);
+    }
+}
+
+fn flush_range(start: VirtAddr, pages: usize) {
+    for i in 0..pages {
+        x86_64::instructions::tlb::flush(start + (i as u64) * PAGE_SIZE as u64);
     }
 }

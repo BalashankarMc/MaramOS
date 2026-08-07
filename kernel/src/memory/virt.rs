@@ -2,7 +2,7 @@
 
 use x86_64::{PhysAddr, VirtAddr, structures::paging::{PageSize, PageTable, PageTableFlags, Size1GiB, Size2MiB, page_table::PageTableEntry}};
 
-use crate::{allocator::RangeAllocator, helpers::InterruptMutex, memory::{MemoryError, PAGE_SIZE}};
+use crate::{allocators::RangeAllocator, errors::MemoryError, helpers::InterruptMutex, memory::PAGE_SIZE};
 use super::physical::{active_l4_table, get_pagetable};
 
 static ALLOCATOR: InterruptMutex<RangeAllocator> = InterruptMutex::new(RangeAllocator::new());
@@ -40,6 +40,9 @@ impl VirtualRegion {
 
         if phys.is_aligned(Size1GiB::SIZE) { while rem >= Size1GiB::SIZE as usize / PAGE_SIZE {
             let l3 = ensure_table(&mut l4[virt.p4_index()])?;
+
+            if !l3[virt.p3_index()].is_unused() { return Err(MemoryError::InvalidMapping) }
+
             l3[virt.p3_index()].set_addr(phys, flags | PageTableFlags::HUGE_PAGE);
 
             virt += Size1GiB::SIZE;
@@ -51,6 +54,8 @@ impl VirtualRegion {
         if phys.is_aligned(Size2MiB::SIZE) { while rem >= Size2MiB::SIZE as usize / PAGE_SIZE {
             let l3 = ensure_table(&mut l4[virt.p4_index()])?;
             let l2 = ensure_table(&mut l3[virt.p3_index()])?;
+            if !l2[virt.p2_index()].is_unused() { return Err(MemoryError::InvalidMapping) }
+
             l2[virt.p2_index()].set_addr(phys, flags | PageTableFlags::HUGE_PAGE);
 
             virt += Size2MiB::SIZE;
@@ -63,6 +68,7 @@ impl VirtualRegion {
             let l3 = ensure_table(&mut l4[virt.p4_index()])?;
             let l2 = ensure_table(&mut l3[virt.p3_index()])?;
             let l1 = ensure_table(&mut l2[virt.p2_index()])?;
+            if !l1[virt.p1_index()].is_unused() { return Err(MemoryError::InvalidMapping) }
 
             l1[virt.p1_index()].set_addr(phys, flags);
 
@@ -193,9 +199,12 @@ fn ensure_table(entry: &mut PageTableEntry) -> Result<&mut PageTable, MemoryErro
     if entry.is_unused() {
         let frame = unsafe { super::physical::alloc_pages_raw(1)
             .ok_or(MemoryError::OutOfMemory)? };
-
         unsafe { super::physical::zero_pages(super::phys_to_virt(frame), 1) };
         entry.set_addr(frame, PageTableFlags::PRESENT | PageTableFlags::WRITABLE);
+    }
+
+    if entry.flags().contains(PageTableFlags::HUGE_PAGE) {
+        return Err(MemoryError::InvalidMapping);
     }
 
     Ok(get_pagetable(entry))

@@ -27,6 +27,4 @@ impl Color {
     pub const RED:     Self = Self::from_rgb(0xFF_00_00);
     pub const GREEN:   Self = Self::from_rgb(0x00_FF_00);
     pub const YELLOW:  Self = Self::from_rgb(0xFF_FF_00);
-    pub const CYAN:    Self = Self::from_rgb(0x00_FF_FF);
-    pub const MAGENTA: Self = Self::from_rgb(0xFF_00_FF);
 }

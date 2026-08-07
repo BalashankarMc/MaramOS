@@ -3,6 +3,8 @@ use crate::log_success;
 mod gdt;
 mod idt;
 
+pub use idt::HardwareInterrupts;
+
 pub fn init() -> Result<(), ()> {
     gdt::init()?;
     idt::init();
