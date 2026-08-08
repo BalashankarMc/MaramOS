@@ -64,6 +64,15 @@ impl<T> LateInit<T> {
         }
         Some(self.get())
     }
+
+    /// Gets a mutable reference to the value present in the `LateInit`.
+    ///
+    /// # Panics
+    /// Panics if the `LateInit` was uninitialized
+    pub fn get_mut(&mut self) -> &mut T {
+        assert!(self.init.load(Ordering::Acquire));
+        unsafe { (*self.data.get()).assume_init_mut() }
+    }
 }
 
 impl<T> Deref for LateInit<T> {

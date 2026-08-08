@@ -92,6 +92,7 @@ pub fn get_pagetable(e: &PageTableEntry) -> &mut PageTable {
 }
 
 fn try_upgrade_hhdm(phys: PhysAddr, count: usize) {
+    // Note: HHDM PageTable entries are reserved by limine. Freeing them would corrupt the buddy allocator
     const PAGES_2MIB: usize = (Size2MiB::SIZE as usize) / PAGE_SIZE; // 512
     const PAGES_1GIB: usize = (Size1GiB::SIZE as usize) / PAGE_SIZE; // 262144
 
@@ -115,15 +116,8 @@ fn try_upgrade_hhdm(phys: PhysAddr, count: usize) {
         // Already a huge page, or not an L2 page-table frame.
         if l3_entry.is_unused() || l3_entry.flags().contains(PageTableFlags::HUGE_PAGE) { return }
 
-        let l2 = get_pagetable(l3_entry);
-        for l2_entry in l2.iter() {
-            if l2_entry.is_unused() || l2_entry.flags().contains(PageTableFlags::HUGE_PAGE) { continue }
-            free_frames(l2_entry.addr(), 1);
-        }
-
-        free_frames(l3_entry.addr(), 1);
         l3_entry.set_addr(phys, flags);
-        flush_range(virt, PAGES_1GIB);
+        x86_64::instructions::tlb::flush_all();
 
     } else if count == PAGES_2MIB && phys.is_aligned(Size2MiB::SIZE) {
         let l3_entry = &l3[l3_index];
@@ -137,14 +131,7 @@ fn try_upgrade_hhdm(phys: PhysAddr, count: usize) {
         // Already a huge page — nothing to free.
         if l2_entry.is_unused() || l2_entry.flags().contains(PageTableFlags::HUGE_PAGE) { return }
 
-        free_frames(l2_entry.addr(), 1);
         l2_entry.set_addr(phys, flags);
-        flush_range(virt, PAGES_2MIB);
-    }
-}
-
-fn flush_range(start: VirtAddr, pages: usize) {
-    for i in 0..pages {
-        x86_64::instructions::tlb::flush(start + (i as u64) * PAGE_SIZE as u64);
+        x86_64::instructions::tlb::flush_all();
     }
 }

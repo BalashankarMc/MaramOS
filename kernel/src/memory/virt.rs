@@ -28,131 +28,84 @@ impl VirtualRegion {
 
     pub fn map(&mut self, mut phys: PhysAddr, mut flags: PageTableFlags) -> Result<(), MemoryError> {
         if self.is_mapped { return Err(MemoryError::InvalidMapping) }
-        self.is_mapped = true;
 
-        let mut rem = self.length;
-        let mut virt = self.start;
+        let start = self.start;
+        let length = self.length;
+        let mut mapped_pages = 0usize;
 
-        // Safety: Single non 'static use. Safe
-        let l4 = unsafe { active_l4_table() };
+        let result: Result<(), MemoryError> = (|| {
+            let mut rem = length;
+            let mut virt = start;
 
-        flags |= PageTableFlags::WRITABLE | PageTableFlags::PRESENT;
+            // Safety: Single non 'static use. Safe
+            let l4 = unsafe { active_l4_table() };
 
-        if phys.is_aligned(Size1GiB::SIZE) { while rem >= Size1GiB::SIZE as usize / PAGE_SIZE {
-            let l3 = ensure_table(&mut l4[virt.p4_index()])?;
+            flags |= PageTableFlags::WRITABLE | PageTableFlags::PRESENT;
 
-            if !l3[virt.p3_index()].is_unused() { return Err(MemoryError::InvalidMapping) }
+            if phys.is_aligned(Size1GiB::SIZE) { while rem >= Size1GiB::SIZE as usize / PAGE_SIZE {
+                let l3 = ensure_table(&mut l4[virt.p4_index()])?;
 
-            l3[virt.p3_index()].set_addr(phys, flags | PageTableFlags::HUGE_PAGE);
+                if !l3[virt.p3_index()].is_unused() { return Err(MemoryError::InvalidMapping) }
 
-            virt += Size1GiB::SIZE;
-            phys += Size1GiB::SIZE;
+                l3[virt.p3_index()].set_addr(phys, flags | PageTableFlags::HUGE_PAGE);
+                mapped_pages += Size1GiB::SIZE as usize / PAGE_SIZE;
 
-            rem = rem.saturating_sub(Size1GiB::SIZE as usize / PAGE_SIZE);
-        } }
+                virt += Size1GiB::SIZE;
+                phys += Size1GiB::SIZE;
 
-        if phys.is_aligned(Size2MiB::SIZE) { while rem >= Size2MiB::SIZE as usize / PAGE_SIZE {
-            let l3 = ensure_table(&mut l4[virt.p4_index()])?;
-            let l2 = ensure_table(&mut l3[virt.p3_index()])?;
-            if !l2[virt.p2_index()].is_unused() { return Err(MemoryError::InvalidMapping) }
+                rem = rem.saturating_sub(Size1GiB::SIZE as usize / PAGE_SIZE);
+            } }
 
-            l2[virt.p2_index()].set_addr(phys, flags | PageTableFlags::HUGE_PAGE);
+            if phys.is_aligned(Size2MiB::SIZE) { while rem >= Size2MiB::SIZE as usize / PAGE_SIZE {
+                let l3 = ensure_table(&mut l4[virt.p4_index()])?;
+                let l2 = ensure_table(&mut l3[virt.p3_index()])?;
+                if !l2[virt.p2_index()].is_unused() { return Err(MemoryError::InvalidMapping) }
 
-            virt += Size2MiB::SIZE;
-            phys += Size2MiB::SIZE;
+                l2[virt.p2_index()].set_addr(phys, flags | PageTableFlags::HUGE_PAGE);
+                mapped_pages += Size2MiB::SIZE as usize / PAGE_SIZE;
 
-            rem = rem.saturating_sub(Size2MiB::SIZE as usize / PAGE_SIZE);
-        } }
-        
-        while rem > 0 {
-            let l3 = ensure_table(&mut l4[virt.p4_index()])?;
-            let l2 = ensure_table(&mut l3[virt.p3_index()])?;
-            let l1 = ensure_table(&mut l2[virt.p2_index()])?;
-            if !l1[virt.p1_index()].is_unused() { return Err(MemoryError::InvalidMapping) }
+                virt += Size2MiB::SIZE;
+                phys += Size2MiB::SIZE;
 
-            l1[virt.p1_index()].set_addr(phys, flags);
+                rem = rem.saturating_sub(Size2MiB::SIZE as usize / PAGE_SIZE);
+            } }
 
-            virt += PAGE_SIZE as u64;
-            phys += PAGE_SIZE as u64;
+            while rem > 0 {
+                let l3 = ensure_table(&mut l4[virt.p4_index()])?;
+                let l2 = ensure_table(&mut l3[virt.p3_index()])?;
+                let l1 = ensure_table(&mut l2[virt.p2_index()])?;
+                if !l1[virt.p1_index()].is_unused() { return Err(MemoryError::InvalidMapping) }
 
-            rem = rem.saturating_sub(1);
+                l1[virt.p1_index()].set_addr(phys, flags);
+                mapped_pages += 1;
+
+                virt += PAGE_SIZE as u64;
+                phys += PAGE_SIZE as u64;
+
+                rem = rem.saturating_sub(1);
+            }
+
+            Ok(())
+        })();
+
+        match result {
+            Ok(()) => {
+                self.is_mapped = true;
+                Ok(())
+            }
+            Err(e) => {
+                if mapped_pages > 0 { unmap_range(start, mapped_pages); }
+                Err(e)
+            }
         }
-
-        Ok(())
     }
 
-    pub fn unmap(&mut self) -> Result<(), ()> {
-        if !self.is_mapped { return Err(()) }
+    pub fn unmap(&mut self) {
+        if !self.is_mapped { return }
+        unmap_range(self.start, self.length);
         self.is_mapped = false;
-
-        let l4 = unsafe { active_l4_table() };
-        let mut rem = self.length;
-        let mut virt = self.start;
-
-        while rem > 0 {
-            let l4_idx = virt.p4_index();
-            if l4[l4_idx].is_unused() {
-                skip_to_boundary(&mut virt, &mut rem, 0x7F_FFFF_FFFF);
-                continue;
-            }
-
-            let l3 = get_pagetable(&l4[l4_idx]);
-            let l3_idx = virt.p3_index();
-
-            if l3[l3_idx].flags().contains(PageTableFlags::HUGE_PAGE) {
-                l3[l3_idx].set_unused();
-                if l3.iter().all(PageTableEntry::is_unused) {
-                    free_frame_and_clear(&mut l4[l4_idx]);
-                }
-                skip_to_boundary(&mut virt, &mut rem, 0x3FFF_FFFF);
-                continue;
-            }
-
-            if l3[l3_idx].is_unused() {
-                skip_to_boundary(&mut virt, &mut rem, 0x3FFF_FFFF);
-                continue;
-            }
-
-            let l2 = get_pagetable(&l3[l3_idx]);
-            let l2_idx = virt.p2_index();
-
-            if l2[l2_idx].flags().contains(PageTableFlags::HUGE_PAGE) {
-                l2[l2_idx].set_unused();
-                if l2.iter().all(PageTableEntry::is_unused) {
-                    free_frame_and_clear(&mut l3[l3_idx]);
-                }
-                if l3.iter().all(PageTableEntry::is_unused) {
-                    free_frame_and_clear(&mut l4[l4_idx]);
-                }
-                skip_to_boundary(&mut virt, &mut rem, 0x1F_FFFF);
-                continue;
-            }
-
-            if l2[l2_idx].is_unused() {
-                skip_to_boundary(&mut virt, &mut rem, 0x1F_FFFF);
-                continue;
-            }
-
-            let l1 = get_pagetable(&l2[l2_idx]);
-            l1[virt.p1_index()].set_unused();
-
-            if l1.iter().all(PageTableEntry::is_unused) {
-                free_frame_and_clear(&mut l2[l2_idx]);
-            }
-            if l2.iter().all(PageTableEntry::is_unused) {
-                free_frame_and_clear(&mut l3[l3_idx]);
-            }
-            if l3.iter().all(PageTableEntry::is_unused) {
-                free_frame_and_clear(&mut l4[l4_idx]);
-            }
-
-            skip_to_boundary(&mut virt, &mut rem, 0xFFF);
-        }
-
-        x86_64::instructions::tlb::flush_all();
-
-        Ok(())
     }
+
 
     /// Returns the start of the region
     pub const fn address(&self) -> VirtAddr { self.start }
@@ -163,7 +116,7 @@ impl VirtualRegion {
 
 impl Drop for VirtualRegion {
     fn drop(&mut self) {
-        let _ = self.unmap();
+        self.unmap();
         ALLOCATOR.lock().free(self.start.as_u64() as usize, self.length * PAGE_SIZE);
     }
 }
@@ -178,7 +131,8 @@ pub fn init() {
         if l4_entry.is_unused() {
             // Unused - Push to allocator
             let start = (l4_index << 39) | (0xFFFF << 48);
-            let end = start + (512 * 1024_usize.pow(3)); // Each L4 Entry owns 512GiB
+            // Each L4 Entry owns 512GiB (The wrap inentionally yields the rem at the top os the addr space)
+            let end = start.wrapping_add(512 * 1024_usize.pow(3)); 
             alloc.add_range(start, end);
             continue
         }
@@ -187,7 +141,7 @@ pub fn init() {
         for (l3_index, l3_entry) in l3.iter().enumerate() {
             if l3_entry.is_unused() {
                 let start = (l4_index << 39) | (l3_index << 30) | (0xFFFF << 48);
-                let end = start + 1024_usize.pow(3); // Each L3 Entry owns 1GiB
+                let end = start.wrapping_add(1024_usize.pow(3)); // Each L3 Entry owns 1GiB
 
                 alloc.add_range(start, end);
             }
@@ -221,4 +175,72 @@ fn skip_to_boundary(virt: &mut VirtAddr, rem: &mut usize, mask: u64) {
 fn free_frame_and_clear(entry: &mut PageTableEntry) {
     super::physical::free_frames(entry.addr(), 1);
     entry.set_unused();
+}
+
+fn unmap_range(start: VirtAddr, pages: usize) {
+    let l4 = unsafe { active_l4_table() };
+    let mut rem = pages;
+    let mut virt = start;
+
+    while rem > 0 {
+        let l4_idx = virt.p4_index();
+        if l4[l4_idx].is_unused() {
+            skip_to_boundary(&mut virt, &mut rem, 0x7F_FFFF_FFFF);
+            continue;
+        }
+
+        let l3 = get_pagetable(&l4[l4_idx]);
+        let l3_idx = virt.p3_index();
+
+        if l3[l3_idx].flags().contains(PageTableFlags::HUGE_PAGE) {
+            l3[l3_idx].set_unused();
+            if l3.iter().all(PageTableEntry::is_unused) {
+                free_frame_and_clear(&mut l4[l4_idx]);
+            }
+            skip_to_boundary(&mut virt, &mut rem, 0x3FFF_FFFF);
+            continue;
+        }
+
+        if l3[l3_idx].is_unused() {
+            skip_to_boundary(&mut virt, &mut rem, 0x3FFF_FFFF);
+            continue;
+        }
+
+        let l2 = get_pagetable(&l3[l3_idx]);
+        let l2_idx = virt.p2_index();
+
+        if l2[l2_idx].flags().contains(PageTableFlags::HUGE_PAGE) {
+            l2[l2_idx].set_unused();
+            if l2.iter().all(PageTableEntry::is_unused) {
+                free_frame_and_clear(&mut l3[l3_idx]);
+            }
+            if l3.iter().all(PageTableEntry::is_unused) {
+                free_frame_and_clear(&mut l4[l4_idx]);
+            }
+            skip_to_boundary(&mut virt, &mut rem, 0x1F_FFFF);
+            continue;
+        }
+
+        if l2[l2_idx].is_unused() {
+            skip_to_boundary(&mut virt, &mut rem, 0x1F_FFFF);
+            continue;
+        }
+
+        let l1 = get_pagetable(&l2[l2_idx]);
+        l1[virt.p1_index()].set_unused();
+
+        if l1.iter().all(PageTableEntry::is_unused) {
+            free_frame_and_clear(&mut l2[l2_idx]);
+        }
+        if l2.iter().all(PageTableEntry::is_unused) {
+            free_frame_and_clear(&mut l3[l3_idx]);
+        }
+        if l3.iter().all(PageTableEntry::is_unused) {
+            free_frame_and_clear(&mut l4[l4_idx]);
+        }
+
+        skip_to_boundary(&mut virt, &mut rem, 0xFFF);
+    }
+
+    x86_64::instructions::tlb::flush_all();
 }

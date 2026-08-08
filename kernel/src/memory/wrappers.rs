@@ -81,6 +81,8 @@ impl MMIORegion {
     /// and `None` on OOB
     pub fn read<T>(&self, offset: usize) -> Option<T> {
         if offset + size_of::<T>() > self.0.length() { return None }
+        if !offset.is_multiple_of(align_of::<T>()) { return None }
+
         let ptr = self.0.address() + offset as u64;
 
         // Safety: As long as `self` is in scope, the memory region is guaranteed to be backed. Safe.
@@ -93,6 +95,8 @@ impl MMIORegion {
     /// Returns `true` on success and `false` on OOB
     pub fn write<T>(&self, offset: usize, val: T) -> bool {
         if offset + size_of::<T>() > self.0.length() { return false }
+        if !offset.is_multiple_of(align_of::<T>()) { return false }
+        
         let ptr = self.0.address() + offset as u64;
 
         // Safety: As long as `self` is in scope, the memory region is guaranteed to be backed. Safe.

@@ -14,6 +14,8 @@ mod allocators;
 mod descriptors;
 mod errors;
 mod prelude;
+mod acpi;
+mod drivers;
 
 #[macro_use]
 mod stdout;
@@ -34,6 +36,12 @@ extern "C" fn kmain() -> ! {
 
     memory::init().expect("Failed to setup memory!");
     descriptors::init().expect("Failed to setup descriptors");
+    acpi::init().unwrap();
+
+    acpi::init_lapic_timer(descriptors::HardwareInterrupts::Timer.as_u8());
+
+    x86_64::instructions::interrupts::enable();
+    drivers::ps2::init().unwrap();
 
     log_success!("Kernel ready");
 

@@ -30,7 +30,8 @@ pub fn init() -> KernelResult<()> {
 fn layout_to_size(layout: core::alloc::Layout) -> usize {
     let align_units = layout.align().div_ceil(16);
     let units = layout.size().max(16).div_ceil(16);
-    units.max(align_units).next_multiple_of(align_units)
+    if align_units == 1 { return units; }
+    units.max(align_units).next_power_of_two()
 }
 
 struct KernelHeap;

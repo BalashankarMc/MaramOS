@@ -1,8 +1,8 @@
 use x86_64::{registers::control::Cr2, structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode}};
 
-use crate::{helpers::LateInit, log_warn};
+use crate::{InterruptMutex, helpers::LateInit, log_warn};
 
-static IDT: LateInit<InterruptDescriptorTable> = LateInit::new();
+static IDT: InterruptMutex<LateInit<InterruptDescriptorTable>> = InterruptMutex::new(LateInit::new());
 
 pub fn init() {
     let mut idt = InterruptDescriptorTable::new();
@@ -11,14 +11,18 @@ pub fn init() {
     idt.general_protection_fault.set_handler_fn(general_protection_fault);
     idt.invalid_opcode.set_handler_fn(invalid_opcode);
     idt.divide_error.set_handler_fn(division_error);
+    idt[HardwareInterrupts::Timer.as_u8()].set_handler_fn(timer);
 
+    // These handlers need IST Stacks
+    // Safety: We know that each stack inedx is valid and not use by other interrupts. Safe
     unsafe {
         idt.double_fault.set_handler_fn(double_fault).set_stack_index(0);
         idt.non_maskable_interrupt.set_handler_fn(non_maskable_interrupt).set_stack_index(1);
         idt.machine_check.set_handler_fn(machine_check).set_stack_index(2);
     }
 
-    IDT.init(idt).load();
+    // Safety: IDT always stays at the same addr and is never dropped. Safe.
+    unsafe { IDT.lock().init(idt).load_unsafe() };    
 }
 
 extern "x86-interrupt" fn double_fault(stack_frame: InterruptStackFrame, err_code: u64) -> ! {
@@ -54,7 +58,22 @@ extern "x86-interrupt" fn machine_check(_stack_frame: InterruptStackFrame) -> ! 
     panic!("Machine Check!")
 }
 
+#[derive(Clone, Copy)]
 pub enum HardwareInterrupts {
-    Timer,
+    Timer = 33,
     Keyboard
+}
+
+impl HardwareInterrupts {
+    pub const fn as_u8(self) -> u8 {
+        self as u8
+    }
+}
+
+extern "x86-interrupt" fn timer(_stack_frame: InterruptStackFrame) {
+    crate::acpi::lapic_eoi();
+}
+
+pub fn add_idt_entry(handler: extern "x86-interrupt" fn(InterruptStackFrame), index: u8) {
+    IDT.lock().get_mut()[index].set_handler_fn(handler);
 }
