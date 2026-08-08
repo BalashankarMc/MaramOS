@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 #![allow(dead_code, clippy::cast_possible_truncation)]
-#![deny(clippy::all)]
+#![deny(clippy::all, unused_import_braces)]
 #![feature(abi_x86_interrupt)]
 
 extern crate alloc;

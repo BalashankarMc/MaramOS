@@ -8,10 +8,12 @@ use crate::{KernelError, KernelResult, RSDP_RESPONSE, errors::ACPIError, log_war
 
 mod apic;
 mod hpet;
+mod mcfg;
 
 pub use hpet::passed_nanos;
 
 /// Initialize the Local APICs
+#[allow(unused_imports)]
 pub use apic::lapic::init_ap as lapic_init;
 
 /// Sends an EOI signal to the Local APICs
@@ -136,12 +138,13 @@ pub fn init() -> KernelResult<()> {
         // Safety: Same as before
         let header = unsafe { info_virt.as_ptr::<SDTHeader>().read_unaligned() };
 
+        // Safety: We know that `info_virt` is valid. Safe.
         match header.signature() {
-            XSDTSignature::Apic => apic::init(info_virt)?,
-            // Safety: We know that `info_virt` is valid. Safe.
+            XSDTSignature::Apic => unsafe { apic::init(info_virt)? },
             XSDTSignature::Hpet => unsafe { hpet::init(info_virt)? },
+            XSDTSignature::Mcfg => unsafe { mcfg::init(info_virt) },
             XSDTSignature::Unknown => log_warn!("Unknown ACPI Table found - Skipping"),
-            _ => {}
+            XSDTSignature::Fadt => {}
         }
     }
 

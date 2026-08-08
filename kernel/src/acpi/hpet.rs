@@ -13,8 +13,7 @@ static HPET_LAST_RAW: AtomicU64 = AtomicU64::new(0);
 /// Initialize the HPET
 /// 
 /// # Safety
-/// The caller must ensure that `hpet_entry` points to a
-/// valid HPET Entry
+/// `hpet_entry` must point to a valid HPET Entry
 pub unsafe fn init(hpet_entry: VirtAddr) -> Result<(), ACPIError> {
     let address = unsafe { (hpet_entry + 44).as_ptr::<u64>().read_unaligned() };
 

@@ -76,7 +76,11 @@ unsafe fn init_apic(apic_header: VirtAddr) -> Result<(), ACPIError> {
     Ok(())
 }
 
-pub fn init(apic_header: VirtAddr) -> Result<(), ACPIError> {
+/// Initializes APIC data.
+/// 
+/// # Safety
+/// `apic_header` must point to a valid APIC entry
+pub unsafe fn init(apic_header: VirtAddr) -> Result<(), ACPIError> {
     unsafe { init_apic(apic_header)?; }
     ioapic::init()?;
     lapic::init()
