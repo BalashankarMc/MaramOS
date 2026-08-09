@@ -1,15 +1,23 @@
 //! Manages the ACPI (Advanced Configuration and Power Interface) tables
 //! and provides handles for some hardware devices like the HPET and LAPIC Timers
 
+use alloc::vec::Vec;
 use x86_64::{PhysAddr, VirtAddr};
 
-use crate::descriptors::HardwareInterrupts;
-use crate::{KernelError, KernelResult, RSDP_RESPONSE, errors::ACPIError, log_warn, memory::phys_to_virt};
+use crate::{
+    KernelError,
+    KernelResult,
+    RSDP_RESPONSE,
+    log_warn,
+    descriptors::HardwareInterrupts,
+    errors::ACPIError,
+    memory::phys_to_virt};
 
 mod apic;
 mod hpet;
 mod mcfg;
 
+pub use mcfg::MCFGEntry;
 pub use hpet::passed_nanos;
 
 /// Initialize the Local APICs
@@ -19,12 +27,21 @@ pub use apic::lapic::init_ap as lapic_init;
 /// Sends an EOI signal to the Local APICs
 pub use apic::lapic::eoi as lapic_eoi;
 
+pub use apic::lapic::id as lapic_id;
 pub use apic::lapic::init_timer as init_lapic_timer;
 pub use apic::ioapic::redirect as redirect_ioapic;
 pub use apic::ioapic::unmask as unmask_ioapic;
 
 pub fn trigger_interrupt(int: HardwareInterrupts) {
     apic::lapic::send_self_ipi(int.as_u8());
+}
+
+/// Reads the `MCFGEntries` and returns a `Vec<MCFGEntry>`
+pub fn mcfg_entries() -> Vec<mcfg::MCFGEntry> {
+    mcfg::MCFG_ENTRIES
+        .try_get()
+        .unwrap_or(&Vec::<mcfg::MCFGEntry>::new())
+        .clone()
 }
 
 const HPET_SIG: u32 = u32::from_ne_bytes(*b"HPET");

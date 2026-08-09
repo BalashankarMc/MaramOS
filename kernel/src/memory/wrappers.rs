@@ -63,6 +63,7 @@ impl Drop for PhysPage {
 }
 
 /// A helper for Memory-Mapped I/O
+#[derive(Debug)]
 pub struct MMIORegion(VirtualRegion);
 
 impl MMIORegion {

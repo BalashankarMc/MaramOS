@@ -43,6 +43,8 @@ extern "C" fn kmain() -> ! {
     x86_64::instructions::interrupts::enable();
     drivers::ps2::init().unwrap();
 
+    drivers::pci::init().unwrap();
+
     log_success!("Kernel ready");
 
     halt_loop()

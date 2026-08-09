@@ -19,7 +19,7 @@ build:
 	rm -f /tmp/esp.img
 
 run: build
-	qemu-system-x86_64 -hda $(DISK_IMG) -bios /usr/share/edk2/x64/OVMF.4m.fd -m 128M -cpu max
+	qemu-system-x86_64 -hda $(DISK_IMG) -bios /usr/share/edk2/x64/OVMF.4m.fd -m 128M -cpu max -machine q35
 
 clean:
 	make -C kernel clean
