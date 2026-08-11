@@ -27,13 +27,7 @@ extern "C" fn kmain() -> ! {
 
     requests::init().expect("Failed to initialize requests!");
 
-    // Framebuffer initialisation
-
-    let fb_raw = FB_RESPONSE.framebuffers()[0];
-    stdout::init(fb_raw);
-    stdout::clear();
-    log_success!("Framebuffer initialized!");
-
+    stdout::init();
     memory::init().expect("Failed to setup memory!");
     descriptors::init().expect("Failed to setup descriptors");
     acpi::init().unwrap();
@@ -41,11 +35,17 @@ extern "C" fn kmain() -> ! {
     acpi::init_lapic_timer(descriptors::HardwareInterrupts::Timer.as_u8());
 
     x86_64::instructions::interrupts::enable();
-    drivers::ps2::init().unwrap();
-
-    drivers::pci::init().unwrap();
+    
+    if let Err(e) = drivers::ps2::init() { log_warn!("{e}") }
+    if let Err(e) = drivers::pci::init() { log_warn!("{e}") }
 
     log_success!("Kernel ready");
+
+    loop {
+        if let Some(key) = drivers::ps2::KEYBOARD_BUFFER.lock().pop_front() {
+            print!("{:?}", key.code);
+        }
+    }
 
     halt_loop()
 }

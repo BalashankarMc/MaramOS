@@ -1,12 +1,16 @@
 use core::fmt;
+use crate::FB_RESPONSE;
 use crate::display::{Color, FrameBuffer, Terminal};
 use crate::helpers::InterruptMutex;
 
 static TERMINAL: InterruptMutex<Option<Terminal>> = InterruptMutex::new(None);
 
-pub fn init(fb_raw: &'static limine::framebuffer::Framebuffer) {
+pub fn init() {
+    let fb_raw = FB_RESPONSE.framebuffers()[0];
     let fb = FrameBuffer::new(fb_raw);
     *TERMINAL.lock() = Some(Terminal::new(fb));
+    clear();
+    crate::log_success!("Framebuffer Initialized!");
 }
 
 pub fn clear() {

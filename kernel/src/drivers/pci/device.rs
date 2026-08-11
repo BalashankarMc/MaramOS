@@ -54,7 +54,9 @@ impl PCIFunction {
 
         // Vendor and device IDs
         let vendor_data = super::config::read32(segment, bus, device, function, 0)?;
-        let vendor_id = (vendor_data & 0xFFFF) as u16;
+        let vendor_id = vendor_data as u16;
+        if vendor_id == 0xFFFF { return None }
+
         let device_id = (vendor_data >> 16) as u16;
 
         // Revision and class data

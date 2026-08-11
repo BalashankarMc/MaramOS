@@ -13,6 +13,7 @@ limine = "0.6.5"
 pc-keyboard = "0.9.0"
 simple-psf = "0.1.2"
 spin = "0.12.2"
+thiserror = { version = "2.0.20", default-features = false }
 x86_64 = "0.15.5"
 
 [lints.clippy]

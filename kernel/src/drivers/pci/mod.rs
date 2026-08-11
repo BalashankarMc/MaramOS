@@ -1,9 +1,10 @@
 use core::fmt::Display;
-
 use alloc::vec::Vec;
+use thiserror::Error;
 
 use config::Segment;
 pub use device::PCIFunction;
+
 
 use crate::{LateInit, log_success};
 
@@ -12,8 +13,9 @@ mod device;
 mod msix;
 mod msi;
 
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum PCIError {
+    #[error("Invalid PCIe device entry!")]
     InvalidMCFGEntry
 }
 
@@ -69,13 +71,13 @@ pub fn init() -> Result<(), PCIError> {
 fn scan() -> Vec<PCIFunction> {
     let mut devices = Vec::new();
     let mut to_scan = Vec::new();
-    let mut scanned_buses = [false; 256];
+    let mut scanned_buses = Vec::new();
 
     // Seed every bus from the MCFG Segments list
     for segment in config::segments() {
         for bus in segment.start_bus ..= segment.end_bus {
-            if !scanned_buses[usize::from(bus)] {
-                scanned_buses[usize::from(bus)] = true;
+            if !bus_scanned(&scanned_buses, segment, bus) {
+                mark_scanned(&mut scanned_buses, segment, bus);
                 to_scan.push((segment, bus));
             }
         }
@@ -102,7 +104,8 @@ fn scan() -> Vec<PCIFunction> {
     devices
 }
 
-fn visit_function<'a>(segment: &'a Segment, bus: u8, device: u8, function: u8, devices: &mut Vec<PCIFunction>, to_scan: &mut Vec<(&'a Segment, u8)>, scanned: &mut [bool; 256]) {
+fn visit_function<'a>(segment: &'a Segment, bus: u8, device: u8, function: u8, devices: &mut Vec<PCIFunction>,
+                      to_scan: &mut Vec<(&'a Segment, u8)>, scanned: &mut Vec<(u64, u8)>) {
     let Some(func) = PCIFunction::new(bus, device, function) else { return };
     devices.push(func);
 
@@ -114,8 +117,8 @@ fn visit_function<'a>(segment: &'a Segment, bus: u8, device: u8, function: u8, d
 
         if sec_bus <= sub_bus {
             for b in sec_bus..=sub_bus {
-                if !scanned[usize::from(b)] {
-                    scanned[usize::from(b)] = true;
+                if !bus_scanned(scanned, segment, b) {
+                    mark_scanned(scanned, segment, b);
                     to_scan.push((segment, b));
                 }
             }
@@ -125,4 +128,12 @@ fn visit_function<'a>(segment: &'a Segment, bus: u8, device: u8, function: u8, d
 
 pub fn find_devices(f: impl Fn(&PCIFunction) -> bool) -> Vec<&'static PCIFunction> {
     DEVICES.iter().filter(|d| f(d)).collect()
+}
+
+fn bus_scanned(scanned: &[(u64, u8)], segment: &Segment, bus: u8) -> bool {
+    scanned.iter().any(|&(base, b)| base == segment.base_address && b == bus)
+}
+
+fn mark_scanned(scanned: &mut Vec<(u64, u8)>, segment: &Segment, bus: u8) {
+    scanned.push((segment.base_address, bus));
 }

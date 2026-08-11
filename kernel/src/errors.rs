@@ -1,89 +1,81 @@
-use core::fmt::Debug;
+use thiserror::Error;
 
+use crate::drivers::{pci::PCIError, ps2::PS2Error, storage::StorageError};
+
+#[derive(Error, Debug)]
 pub enum KernelError {
+    #[error("Bootloader (Limine) provided invalid response")]
     BadLimineResp,
-    MemoryError(MemoryError),
-    ACPIError(ACPIError)
+    #[error(transparent)]
+    MemoryError(#[from] MemoryError),
+    #[error(transparent)]
+    ACPIError(#[from] ACPIError),
+    #[error(transparent)]
+    DriverError(#[from] DriverError),
 }
 
-impl Debug for KernelError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let s = match self {
-            Self::BadLimineResp => "Bootloader (Limine) provided invalid response",
-            Self::MemoryError(x) => x.to_str(),
-            Self::ACPIError(x) => x.to_str()
-        };
-
-        f.write_str(s)
-    }
+impl From<PS2Error> for KernelError {
+    fn from(value: PS2Error) -> Self { Self::DriverError(value.into()) }
 }
 
-impl From<MemoryError> for KernelError {
-    fn from(value: MemoryError) -> Self {
-        Self::MemoryError(value)
-    }
+impl From<PCIError> for KernelError {
+    fn from(value: PCIError) -> Self { Self::DriverError(value.into()) }
 }
 
-impl From<ACPIError> for KernelError {
-    fn from(value: ACPIError) -> Self {
-        Self::ACPIError(value)
-    }
+impl From<StorageError> for KernelError {
+    fn from(value: StorageError) -> Self { Self::DriverError(value.into()) }
 }
 
 pub type KernelResult<T> = Result<T, KernelError>;
 
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum MemoryError {
+    #[error("Out of Memory!")]
     OutOfMemory,
-    InvalidMapping
+    #[error("Attempted to perform an invalid mapping operation")]
+    InvalidMapping,
 }
 
-impl MemoryError {
-    const fn to_str(&self) -> &'static str {
-        match self {
-            Self::OutOfMemory => "Out of Memory!",
-            Self::InvalidMapping => "Attempted to perform an invalid mapping operation"
-        }
-    }
-}
-
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum ACPIError {
+    #[error("RSDP checksum is invalid")]
     RSDPIntegrityFailed,
+    #[error("RSDP revision is not 2 (ACPI 2.0+)")]
     RSDPUnsupportedRevision,
+    #[error("XSDT checksum is invalid")]
     XSDTChecksumFailed,
+    #[error("SDT entry checksum is invalid")]
     SDTChecksumFailed,
+    #[error("FADT revision is too old (requires >= 2)")]
     FADTRevisionTooOld,
+    #[error("FADT has no reset register")]
     FADTNoResetRegister,
+    #[error("FADT reset register uses unsupported address space")]
     FADTUnsupportedResetAddressSpace,
+    #[error("HPET capability register reports zero period")]
     HPETPeriodZero,
+    #[error("MADT contains no I/O APIC entry")]
     MADTNoIoApicFound,
+    #[error("MADT entry has zero length (infinite loop)")]
     MADTEntryLengthZero,
+    #[error("I/O APIC was not initialized (missing MADT entry)")]
     IOAPICNotInitialized,
+    #[error("GSI is below I/O APIC GSI base")]
     GSIUnderflow,
+    #[error("HPET has not been initialized yet")]
     HPETNotInitialized,
+    #[error("LAPIC base address frame is zero/unmapped")]
     LAPICBaseNotMapped,
-    NoX2APIC
+    #[error("System does not support X2APIC mode")]
+    NoX2APIC,
 }
 
-impl ACPIError {
-    const fn to_str(&self) -> &'static str {
-        match self {
-            Self::RSDPIntegrityFailed => "RSDP checksum is invalid",
-            Self::RSDPUnsupportedRevision => "RSDP revision is not 2 (ACPI 2.0+)",
-            Self::XSDTChecksumFailed => "XSDT checksum is invalid",
-            Self::SDTChecksumFailed => "SDT entry checksum is invalid",
-            Self::FADTRevisionTooOld => "FADT revision is too old (requires >= 2)",
-            Self::FADTNoResetRegister => "FADT has no reset register",
-            Self::FADTUnsupportedResetAddressSpace => "FADT reset register uses unsupported address space",
-            Self::HPETPeriodZero => "HPET capability register reports zero period",
-            Self::MADTNoIoApicFound => "MADT contains no I/O APIC entry",
-            Self::MADTEntryLengthZero => "MADT entry has zero length (infinite loop)",
-            Self::IOAPICNotInitialized => "I/O APIC was not initialized (missing MADT entry)",
-            Self::GSIUnderflow => "GSI is below I/O APIC GSI base",
-            Self::HPETNotInitialized => "HPET has not been initialized yet",
-            Self::LAPICBaseNotMapped => "LAPIC base address frame is zero/unmapped",
-            Self::NoX2APIC => "System does not support X2APIC mode"
-        }
-    }
+#[derive(Error, Debug)]
+pub enum DriverError {
+    #[error(transparent)]
+    PS2(#[from] PS2Error),
+    #[error(transparent)]
+    PCIe(#[from] PCIError),
+    #[error(transparent)]
+    Storage(#[from] StorageError),
 }

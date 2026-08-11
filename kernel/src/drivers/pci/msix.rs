@@ -27,17 +27,23 @@ pub fn program(dev: &PCIFunction, region: &MMIORegion, entry_index: u16, vector:
     let msg_addr = 0xFEE0_0000 | (u64::from(lapic_id) << 12);
     let msg_data = vector as u32;
 
+    let mut ctrl = dev.read_u16(cap + 2)?;
+
+    // Set function mask first
+    ctrl |= 1 << 14;
+    dev.write_u16(cap + 2, ctrl)?;
+
     // Write the 16-byte MSI-X entry: msg_addr (QWord), msg_data (DWord),
     // vector control (DWord, 0 = unmasked).
     let offset = (table_offset + u64::from(entry_index) * 16) as usize;
     if !region.write(offset, msg_addr) { return None }
     if !region.write(offset + 8, msg_data) { return None }
-    if !region.write(offset + 12, 0) { return None }
+    if !region.write(offset + 12, 1) { return None }
 
     // Enable MSI-X (bit 15), clear function mask (bit 14).
-    let mut ctrl = dev.read_u16(cap + 2)?;
     ctrl = (ctrl | (1 << 15)) & !(1 << 14);
     dev.write_u16(cap + 2, ctrl);
+    if !region.write(offset + 12, 0) { return None }
 
     // Set PCI command register bit 10 (MSI enable).
     let mut cmd = dev.read_u32(0x04)?;

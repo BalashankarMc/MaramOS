@@ -1,9 +1,12 @@
 //! Implements the PS2 driver for `MaramOS`.
 
 use core::hint::spin_loop;
+use thiserror::Error;
 use x86_64::instructions::port::Port;
 
-use crate::{InterruptMutex, log_error, log_success};
+use crate::{InterruptMutex, log_success};
+
+pub use keyboard::KEY_BUFFER as KEYBOARD_BUFFER;
 
 mod keyboard;
 
@@ -13,11 +16,19 @@ const CMD_PORT: u16 = 0x64;
 static DPORT: InterruptMutex<Port<u8>> = InterruptMutex::new(Port::new(DATA_PORT));
 static CPORT: InterruptMutex<Port<u8>> = InterruptMutex::new(Port::new(CMD_PORT));
 
-pub fn init() -> Result<(), ()> {
-    if read_status() == 0xFF {
-        log_error!("Floating PS/2 Controller!");
-        return Err(())
-    }
+#[derive(Error, Debug)]
+pub enum PS2Error {
+    #[error("PS2: Floating Controller!")]
+    FloatingController,
+    #[error("PS2: Controller Failed Self-Test")]
+    ControllerTestFailed,
+    #[error("PS2: Keyboard sent an invalid response!")]
+    KeyboardACKFailed,
+    #[error("PS2: IRQ Routing Failed!")]
+    IRQFail
+}
+pub fn init() -> Result<(), PS2Error> {
+    if read_status() == 0xFF { return Err(PS2Error::FloatingController) }
 
     // Disable keyboard and mouse
     write_command(0xAD);
@@ -28,7 +39,7 @@ pub fn init() -> Result<(), ()> {
 
     // Controller self test
     write_command(0xAA);
-    if read_data() != 0x55 { return Err(()) }
+    if read_data() != 0x55 { return Err(PS2Error::ControllerTestFailed) }
 
     // Mask both clocks
     update_config(|c| c | (3 << 4));
