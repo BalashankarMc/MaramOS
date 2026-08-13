@@ -6,16 +6,16 @@
 
 extern crate alloc;
 
+mod acpi;
+mod errors;
+mod memory;
+mod prelude;
 mod display;
+mod drivers;
 mod helpers;
 mod requests;
-mod memory;
 mod allocators;
 mod descriptors;
-mod errors;
-mod prelude;
-mod acpi;
-mod drivers;
 
 #[macro_use]
 mod stdout;
@@ -38,6 +38,7 @@ extern "C" fn kmain() -> ! {
     
     if let Err(e) = drivers::ps2::init() { log_warn!("{e}") }
     if let Err(e) = drivers::pci::init() { log_warn!("{e}") }
+    drivers::storage::init();
 
     log_success!("Kernel ready");
 
@@ -46,8 +47,6 @@ extern "C" fn kmain() -> ! {
             print!("{:?}", key.code);
         }
     }
-
-    halt_loop()
 }
 
 fn halt_loop() -> ! {

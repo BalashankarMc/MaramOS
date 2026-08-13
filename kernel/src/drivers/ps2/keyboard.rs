@@ -6,7 +6,7 @@ use x86_64::structures::idt::InterruptStackFrame;
 
 use pc_keyboard::PS2Keyboard as Keyboard;
 
-use crate::{InterruptMutex, acpi::lapic_eoi, descriptors::{HardwareInterrupts, add_idt_entry}, print, println};
+use crate::{InterruptMutex, acpi::lapic_eoi, descriptors::{HardwareInterrupts, add_idt_entry}};
 use super::{PS2Error, update_config, write_data, read_data};
 
 static DECODER: InterruptMutex<Keyboard<layouts::Us104Key, ScancodeSet1>> = InterruptMutex::new(

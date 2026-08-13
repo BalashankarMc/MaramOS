@@ -61,7 +61,8 @@ extern "x86-interrupt" fn machine_check(_stack_frame: InterruptStackFrame) -> ! 
 #[derive(Clone, Copy)]
 pub enum HardwareInterrupts {
     Timer = 33,
-    Keyboard
+    Keyboard,
+    Ahci
 }
 
 impl HardwareInterrupts {

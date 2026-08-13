@@ -2,10 +2,10 @@
 
 use alloc::vec::Vec;
 
-use crate::drivers::pci::{DeviceType, config::{Segment, find_entry}};
+use crate::drivers::pci::{DeviceType, PciID, config::{Segment, find_entry}};
 
 /// Description of a single Base Address Register decoded from config space.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BarInfo {
     pub address: u64,
     pub size: u64,
@@ -26,14 +26,14 @@ impl BarInfo {
 }
 
 /// A single capability header record from the linked list at offset 0x34.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct CapHeader {
     id: u8,
     offset: u8,
 }
 
 /// A discovered PCI function with its identity, BARs, and capabilities.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PCIFunction {
     pub bus: u8,
     pub device: u8,
@@ -84,6 +84,10 @@ impl PCIFunction {
     pub const fn class(&self) -> u8 { self.class }
     pub const fn subclass(&self) -> u8 { self.subclass }
     
+    pub const fn id(&self) -> PciID {
+        PciID { device: self.device, bus: self.bus, function: self.function }
+    }
+
     pub fn read_u32(&self, offset: u16) -> Option<u32> {
         let entry = find_entry(self.bus)?;
         super::config::read32(entry, self.bus, self.device, self.function, offset)
@@ -112,6 +116,16 @@ impl PCIFunction {
     pub fn write_u8(&self, offset: u16, val: u8) -> Option<()> {
         let entry = find_entry(self.bus)?;
         super::config::write8(entry, self.bus, self.device, self.function, offset, val)
+    }
+
+    pub fn enable_mmio(&self) -> Option<()> {
+        let cmd = self.read_u32(4)? | 2;
+        self.write_u32(4, cmd)
+    }
+
+    pub fn enable_bus_master(&self) -> Option<()> {
+        let cmd = self.read_u32(4)? | 4;
+        self.write_u32(4, cmd)
     }
 
     pub fn bar(&self, index: usize) -> Option<BarInfo> {
@@ -151,6 +165,12 @@ impl PCIFunction {
             },
             _ => DeviceType::Unknown,
         }
+    }
+}
+
+impl Drop for PCIFunction {
+    fn drop(&mut self) {
+        super::DEVICES.lock().push(self.clone());
     }
 }
 

@@ -5,6 +5,7 @@ use x86_64::{PhysAddr, VirtAddr, structures::paging::PageTableFlags};
 use crate::memory::{PAGE_SIZE, virt::VirtualRegion};
 
 /// A representation of physical page ranges
+#[derive(Debug)]
 pub struct PhysPage {
     start: VirtAddr,
     // Number of 4KiB Pages in this range
@@ -54,6 +55,7 @@ impl PhysPage {
     }
 
     pub const fn address(&self) -> VirtAddr { self.start }
+    pub const fn phys(&self) -> PhysAddr { self.phys }
 }
 
 impl Drop for PhysPage {

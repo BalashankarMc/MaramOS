@@ -4,7 +4,7 @@
 
 use x86_64::registers::model_specific::{ApicBase, ApicBaseFlags, Msr};
 
-use crate::{LateInit, errors::ACPIError, helpers::wait_for};
+use crate::{LateInit, errors::ACPIError, helpers::wait_while};
 
 const X2APIC_SVR: u32 = 0x80F;
 const X2APIC_ERROR_STATUS: u32 = 0x808;
@@ -66,7 +66,7 @@ pub fn init_timer(vector: u8) {
     }
 
     let start = crate::acpi::passed_nanos();
-    wait_for(|| { crate::acpi::passed_nanos() - start < 10_000_000 });
+    wait_while(|| { crate::acpi::passed_nanos() - start < 10_000_000 });
 
     // Safety: Just more MSR writes
     let elapsed = u32::MAX - unsafe { Msr::new(X2APIC_TIMER_CCR).read() } as u32;

@@ -6,7 +6,7 @@ use config::Segment;
 pub use device::PCIFunction;
 
 
-use crate::{LateInit, log_success};
+use crate::{InterruptMutex, log_success};
 
 mod config;
 mod device;
@@ -17,6 +17,14 @@ mod msi;
 pub enum PCIError {
     #[error("Invalid PCIe device entry!")]
     InvalidMCFGEntry
+}
+
+/// An Identifier for PCI Devices
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PciID {
+    device: u8,
+    bus: u8,
+    function: u8
 }
 
 /// Classification of PCI function by its base class / subclass code.
@@ -49,7 +57,7 @@ impl Display for DeviceType {
     }
 }
 
-pub static DEVICES: LateInit<Vec<PCIFunction>> = LateInit::new();
+static DEVICES: InterruptMutex<Vec<PCIFunction>> = InterruptMutex::new(Vec::new());
 
 pub fn init() -> Result<(), PCIError> {
     let entries = crate::acpi::mcfg_entries();
@@ -61,8 +69,8 @@ pub fn init() -> Result<(), PCIError> {
 
     config::init_segments(segments)?;
 
-    let devices = scan();
-    DEVICES.init(devices);
+    let mut devices = scan();
+    DEVICES.lock().append(&mut devices);
 
     log_success!("PCIe subsystem initialized!");
     Ok(())
@@ -126,8 +134,14 @@ fn visit_function<'a>(segment: &'a Segment, bus: u8, device: u8, function: u8, d
     }
 }
 
-pub fn find_devices(f: impl Fn(&PCIFunction) -> bool) -> Vec<&'static PCIFunction> {
-    DEVICES.iter().filter(|d| f(d)).collect()
+pub fn find_devices(f: impl Fn(&PCIFunction) -> bool) -> Vec<PciID> {
+    DEVICES.lock().iter().filter(|d| f(d)).map(PCIFunction::id).collect()
+}
+
+pub fn claim_device(id: PciID) -> Option<PCIFunction> {
+    let mut lock = DEVICES.lock();
+    let pos = lock.iter().position(|d| d.id() == id)?;
+    Some(lock.remove(pos))
 }
 
 fn bus_scanned(scanned: &[(u64, u8)], segment: &Segment, bus: u8) -> bool {
