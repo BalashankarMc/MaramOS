@@ -12,22 +12,20 @@ use super::{
     registers::PortRegisters
 };
 
-const MAX_SLOTS: u8 = 0x20;
-
 pub fn stop_cmd(port: &PortRegisters) -> Result<(), StorageError> {
     port.cmd.write(port.cmd.read() & !0x01);
 
-    if !wait_timeout(|| port.cmd.read() & 0x8000 != 0, &TIMEOUT) { return Err(StorageError::Timeout) }
+    wait_timeout(|| port.cmd.read() & 0x8000 != 0, &TIMEOUT).ok_or(StorageError::Timeout)?;
 
     port.cmd.write(port.cmd.read() & !0x10);
 
-    if !wait_timeout(|| port.cmd.read() & 0x4000 != 0, &TIMEOUT) { return Err(StorageError::Timeout) }
+    wait_timeout(|| port.cmd.read() & 0x4000 != 0, &TIMEOUT).ok_or(StorageError::Timeout)?;
 
     Ok(())
 }
 
 pub fn start_cmd(port: &PortRegisters) -> Result<(), StorageError> {
-    if !wait_timeout(|| port.cmd.read() & 0x8000 != 0, &TIMEOUT) { return Err(StorageError::Timeout) }
+    wait_timeout(|| port.cmd.read() & 0x8000 != 0, &TIMEOUT).ok_or(StorageError::Timeout)?;
 
     port.cmd.write(port.cmd.read() | 0x11);
 
@@ -72,9 +70,9 @@ pub fn com_reset(port: &PortRegisters) -> bool {
     wait_timeout(closure, &TIMEOUT)
 }
 
-pub fn find_slot(port: &PortRegisters) -> Option<u8> {
+pub fn find_slot(port: &PortRegisters, ncs: u8) -> Option<u8> {
     let slots = port.sact.read() | port.ci.read();
-    for i in 0..MAX_SLOTS {
+    for i in 0 ..= ncs {
         if slots & (1 << u32::from(i)) == 0 { return Some(i) }
     }
     None

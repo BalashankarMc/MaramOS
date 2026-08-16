@@ -19,7 +19,9 @@ build:
 	rm -f /tmp/esp.img
 
 run: build
-	qemu-system-x86_64 -hda $(DISK_IMG) -bios /usr/share/edk2/x64/OVMF.4m.fd -m 128M -cpu max -machine q35
+	qemu-system-x86_64 -bios /usr/share/edk2/x64/OVMF.4m.fd -m 128M -cpu max -machine q35 \
+	-drive if=none,id=sata0,file=$(DISK_IMG),format=raw -device ich9-ahci,id=ahci \
+	-device ide-hd,bus=ahci.0,drive=sata0
 
 clean:
 	make -C kernel clean

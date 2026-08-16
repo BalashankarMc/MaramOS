@@ -1,13 +1,16 @@
+//! Implements the SATA AHCI driver for `MaramOS`
+//! DOES NOT SUPPORT PORT MULTIPLICATION
+
 use core::ops::Add;
 
 use alloc::{sync::Arc, vec::Vec};
+use spin::Mutex;
 use x86_64::PhysAddr;
 
-use crate::{drivers::pci::PCIFunction, helpers::wait_timeout, memory::{MMIORegion, PAGE_SIZE, PhysPage}, println};
+use crate::{drivers::pci::PCIFunction, helpers::{Time, wait_timeout}, log_success, log_warn, memory::{MMIORegion, PAGE_SIZE, PhysPage}};
 use super::{StorageDrive, StorageError, TIMEOUT, BLOCK_SIZE};
 
 mod fis;
-mod irq;
 mod port;
 mod commands;
 mod registers;
@@ -16,9 +19,12 @@ use registers::{GlobalRegisters, PortRegisters};
 use commands::{CommandHeader, CommandTableHeader, PhysRegionDescTableEntry};
 use fis::FISRegisterH2D;
 
-const PRD_MAX_BYTES: usize = 1 << 22;
-const PRDS_PER_TABLE: usize = 8;
-const MAX_SECTORS_PER_CMD: usize = u16::MAX as usize;
+const PROBE_TIMEOUT: Time = Time::Milliseconds(500);
+const PRD_MAX_BYTES: usize = 1 << 21;
+const PRDS_PER_TABLE: usize = 16;
+const PRD_STRIDE: u64 = 0x80 + PRDS_PER_TABLE as u64 * 16;
+const MAX_SECTORS_PER_CMD: u64 = u16::MAX as u64;
+const FATAL_PXIS_MASK: u32 = 0xF << 27;
 
 #[derive(Debug)]
 pub struct MappedPCI(PCIFunction, MMIORegion);
@@ -31,7 +37,9 @@ pub struct AHCIDrive {
     command_tables: PhysPage,
     _fis_buffer: PhysPage,
     block_size: u64,
-    block_count: u64
+    block_count: u64,
+    ncs: u8,
+    lock: Mutex<()>
 }
 
 impl AHCIDrive {
@@ -43,18 +51,18 @@ impl AHCIDrive {
             .ok_or(CommandFailed)?;
 
         // Find free slot
-        let slot = port::find_slot(&port).ok_or(CommandFailed)?;
+        let slot = port::find_slot(&port, self.ncs).ok_or(CommandFailed)?;
 
         // Initialize command header
         let mut cmd_header = CommandHeader::zeroed();
         cmd_header.fis_info.set(5, is_write);
         
-        let ct_phys = self.command_tables.phys().as_u64() + u64::from(slot) * 0x100;
+        let ct_phys = self.command_tables.phys().as_u64() + u64::from(slot) * PRD_STRIDE;
         cmd_header.cmd_table_base_addr_lower = ct_phys as u32;
         cmd_header.cmd_table_base_addr_upper = (ct_phys >> 32) as u32;
 
         // Zero command table header
-        let offset = usize::from(slot) * 0x100;
+        let offset = usize::from(slot) * PRD_STRIDE as usize;
         self.command_tables.write_data(offset, CommandTableHeader::zeroed());
 
         // Write FIS
@@ -75,7 +83,8 @@ impl AHCIDrive {
         for i in 0..num_prds {
             let chunk = rem.min(PRD_MAX_BYTES as u64);
             let prd = unsafe {
-                self.command_tables.address().add(0x80 + i as u64 * 16).as_mut_ptr::<PhysRegionDescTableEntry>()
+                self.command_tables.address().add(u64::from(slot) * PRD_STRIDE + 0x80 + i as u64 * 16)
+                    .as_mut_ptr::<PhysRegionDescTableEntry>()
                     .as_mut().ok_or(CommandFailed)?
             };
 
@@ -93,24 +102,32 @@ impl AHCIDrive {
         let offset = size_of::<CommandHeader>() * usize::from(slot);
         if !self.command_list.write_data(offset, cmd_header) { return Err(CommandFailed) }
 
+        // Clear IS
+        port.is.write(u32::MAX);
+
+        // Wait for BSY / DRQ to clear
+        wait_timeout(|| port.tfd.read() & ((1 << 7) | (1 << 3)) != 0, &TIMEOUT).ok_or(StorageError::CommandFailed)?;
+
         // Write CI (Command Issued) flag
         port.ci.write(1 << slot);
 
-        if !wait_timeout(|| (port.ci.read() >> slot) & 1 == 1, &TIMEOUT) { return Err(StorageError::Timeout) }
+        wait_timeout(|| (port.ci.read() >> slot) & 1 == 1, &TIMEOUT).ok_or(StorageError::Timeout)?;
 
-        if port.is.read() & (1 << 30) != 0 {
-            port.is.write(1 << 30);
-            return Err(CommandFailed)
-        }
+        let is = port.is.read();
+        port.is.write(u32::MAX);
+        if is & FATAL_PXIS_MASK != 0 { return Err(CommandFailed) }
+
+        if port.tfd.read() & 1 != 0 { return Err(CommandFailed) }
 
         Ok(())
     }
 }
 
+
 pub fn init(device: PCIFunction) -> Result<Vec<AHCIDrive>, StorageError> {
     use StorageError::{InitFailed, PCIeError};
     
-    // Initliaze the PCI device
+    // Initialize the PCI device
     device.enable_bus_master().ok_or(PCIeError)?;
     device.enable_mmio().ok_or(PCIeError)?;
 
@@ -124,7 +141,8 @@ pub fn init(device: PCIFunction) -> Result<Vec<AHCIDrive>, StorageError> {
 
     // Read capabilities
     let cap = global_registers.cap.read();
-    let num_ports = (cap & 0x1F) + 1;
+    let ports_count = (cap & 0x1F) + 1;
+    let ncs = ((cap >> 8) & 0x1F) as u8;
 
     if (cap >> 31) & 1 != 1 { return Err(InitFailed) } // No 64-bit addressing :(
 
@@ -133,15 +151,19 @@ pub fn init(device: PCIFunction) -> Result<Vec<AHCIDrive>, StorageError> {
         global_registers.bohc.write(bohc | 2); // Request Ownership
 
         // Wait for ownership / timeout
-        if !wait_timeout(|| (global_registers.bohc.read() >> 4).trailing_zeros() < 2, &TIMEOUT) { return Err(StorageError::Timeout) }
+        wait_timeout(|| !global_registers.bohc.read().is_multiple_of(2), &TIMEOUT).ok_or(StorageError::Timeout)?;
     }
+
+    // Enable AHCI Mode
+    let ghc = global_registers.ghc.read();
+    global_registers.ghc.write(ghc | (1 << 31));
 
     // Controller reset
     let ghc = global_registers.ghc.read();
     global_registers.ghc.write(ghc | 1);
-    if !wait_timeout(|| global_registers.ghc.read() & 1 == 1, &TIMEOUT) { return Err(StorageError::Timeout) }
+    wait_timeout(|| global_registers.ghc.read() & 1 == 1, &TIMEOUT).ok_or(StorageError::Timeout)?;
 
-    // Enable AHCI Mode
+    // Enable AHCI Mode again
     let ghc = global_registers.ghc.read();
     global_registers.ghc.write(ghc | (1 << 31));
 
@@ -154,37 +176,61 @@ pub fn init(device: PCIFunction) -> Result<Vec<AHCIDrive>, StorageError> {
 
     let mut drives = Vec::new(); // Return value containing the initialized drives
 
-    for port_id in 0..num_ports {
-        if (pi >> port_id) & 1 == 0 { continue } // No port here
-        
-        let port_registers = PortRegisters::new(bar, port_id).ok_or(InitFailed)?;
+    // Probe
+    for port_id in 0..ports_count {
+        if (pi >> port_id) & 1 == 0 { continue } // Port not implemented
 
-        // Write SUD (Boot brive if it uses staggered spin-up) and POD
+        let Some(port_registers) = PortRegisters::new(bar, port_id) else {
+            log_warn!("Failed to initialize port registers on port {port_id}!");
+            continue
+        };
+
+        let det = port_registers.ssts.read() & 0xF;
+        if det != 1 && det != 3 { continue } // No device on port
+
+        // Write SUD (Boot drive if it uses staggered spin-up) and POD
         let cmd = port_registers.cmd.read();
         port_registers.cmd.write(cmd | 6);
-        if !wait_timeout(|| port_registers.ssts.read() & 0xF != 3, &TIMEOUT) { continue } // Wait for drive boot
+        if !wait_timeout(|| port_registers.ssts.read() & 0xF != 3, &PROBE_TIMEOUT) { // Wait for drive boot
+            log_warn!("AHCI: Device on port {port_id} did not boot in time!");
+            continue
+        }
 
         let ssts = port_registers.ssts.read();
         let ipm = (ssts >> 8) & 0xF;
-        let det = ssts & 0xF;
 
-        if det + ipm == 0 { continue } // No device (DET and IPM are 0)
+        if ipm == 0 { // No device (IPM is 0)
+            log_warn!("AHCI: No device on port {port_id}");
+            continue
+        }
 
-        if det == 3 && ipm != 1 && !port::com_reset(&port_registers) { continue } // Power up the device (COMRESET)
+        if ipm != 1 && !port::com_reset(&port_registers) { // Power up the device (COMRESET)
+            log_warn!("AHCI: Device on port {port_id} did not COMRESET");
+            continue
+        }
 
         port_registers.serr.write(u32::MAX); // Clear SERR
-
-        if port_registers.sig.read() != 0x101 { continue } // Not a SATA Drive
 
         // Allocate memory for DMA Buffers
         let command_list = PhysPage::new(1).ok_or(InitFailed)?;
         let fis_buffer = PhysPage::new(1).ok_or(InitFailed)?;
-        let command_tables = PhysPage::new(2).ok_or(InitFailed)?;
+        let command_tables = PhysPage::new(3).ok_or(InitFailed)?;
 
         // Update port with correct buffers
         port::rebase(&port_registers, command_list.phys(), fis_buffer.phys())?;
 
-        // Drive struct missing `block_size` and `block_count` (Need to issue INDENTIFY)
+        if !wait_timeout(|| port_registers.cmd.read() & 0x4000 == 0, &TIMEOUT) {
+            log_warn!("Device at port {port_id} did not reboot in time!");
+            continue
+        }
+
+        let sig = port_registers.sig.read();
+        if sig != 0x101 { // Not a SATA Drive
+            log_warn!("AHCI: Device on port {port_id} is not a SATA Drive. Signature: 0x{sig:02X}");
+            continue
+        }
+
+        // Drive struct missing `block_size` and `block_count` (Need to issue IDENTIFY)
         let mut drive = AHCIDrive {
             mapped_device: mapped.clone(),
             port_id,
@@ -192,7 +238,9 @@ pub fn init(device: PCIFunction) -> Result<Vec<AHCIDrive>, StorageError> {
             command_tables,
             _fis_buffer: fis_buffer,
             block_size: 0,
-            block_count: 0
+            block_count: 0,
+            ncs,
+            lock: Mutex::new(())
         };
 
         let id_buf = PhysPage::new(1).ok_or(InitFailed)?;
@@ -200,31 +248,121 @@ pub fn init(device: PCIFunction) -> Result<Vec<AHCIDrive>, StorageError> {
 
         drive.send_command(&fis, id_buf.phys(), 512, false).map_err(|_| InitFailed)?;
         drive.block_count = id_buf.read_data::<u64>(200).ok_or(InitFailed)?;
-        drive.block_size = u64::from(id_buf.read_data::<u32>(212).ok_or(InitFailed)?);
 
-        println!("Drive Block Size: {}", drive.block_size);
+        let word106 = id_buf.read_data::<u16>(212).ok_or(InitFailed)?;
+        drive.block_size = if (word106 >> 12) & 1 == 1 {
+            let word117 = id_buf.read_data::<u16>(234).ok_or(InitFailed)?;
+            let word118 = id_buf.read_data::<u16>(236).ok_or(InitFailed)?;            
+
+            let half = (u32::from(word118) << 16) | u32::from(word117);
+            u64::from(half * 2).max(BLOCK_SIZE)
+        } else { BLOCK_SIZE };
 
         drives.push(drive);
+        log_success!("Initialized drive on port {port_id}");
     }
     Ok(drives)
 }
 
 impl StorageDrive for AHCIDrive {
     fn block_count(&self) -> u64 {
-        (self.block_count * self.block_size) / BLOCK_SIZE as u64
+        (self.block_count * self.block_size) / BLOCK_SIZE
     }
 
-    fn read_blocks(&self, start_block: u64, count: u64, _dest: &mut PhysPage) -> Result<(), StorageError> {
-        if start_block + count > self.block_count() { return Err(StorageError::BlockOutOfBounds) }
+    fn read_blocks(&self, start_block: u64, count: u64, dest: &mut PhysPage) -> Result<(), StorageError> {
+        let _guard = self.lock.lock();
+        let start_native = (start_block * BLOCK_SIZE) / self.block_size;
+        let count_native = (count * BLOCK_SIZE).div_ceil(self.block_size);
+        let max_native = (PRDS_PER_TABLE * PRD_MAX_BYTES) as u64 / self.block_size;
 
-        todo!()
+        if start_native + count_native > self.block_count { return Err(StorageError::BlockOutOfBounds) }
+
+        if dest.count * PAGE_SIZE < (count_native * self.block_size) as usize { return Err(StorageError::CommandFailed) }
+
+        let mut offset = 0;
+        while offset < count_native {
+            let chunks = (count_native - offset).min(MAX_SECTORS_PER_CMD).min(max_native);
+            let fis = FISRegisterH2D::new(
+                0x80,
+                0x25,
+                0,
+                start_native + offset,
+                chunks as u16,
+                0,
+                0
+            );
+
+            let bytes = (chunks * self.block_size) as usize;
+            let addr = dest.phys() + offset * self.block_size;
+
+            self.send_command(&fis, addr, bytes, false)?;
+            offset += chunks;
+        }
+
+        Ok(())
     }
 
-    fn write_blocks(&self, _start_block: u64, _count: u64, _src: &PhysPage) -> Result<(), StorageError> {
-        todo!()
+    fn write_blocks(&self, start_block: u64, count: u64, src: &PhysPage) -> Result<(), StorageError> {
+        let _guard = self.lock.lock();
+        let start_native = (start_block * BLOCK_SIZE) / self.block_size;
+        let count_native = (count * BLOCK_SIZE).div_ceil(self.block_size);
+        let max_native = (PRDS_PER_TABLE * PRD_MAX_BYTES) as u64 / self.block_size;
+
+        if start_native + count_native > self.block_count { return Err(StorageError::BlockOutOfBounds) }
+
+        if src.count * PAGE_SIZE < (count_native * self.block_size) as usize { return Err(StorageError::CommandFailed) }
+
+        let mut offset = 0;
+        while offset < count_native {
+            let chunks = (count_native - offset).min(MAX_SECTORS_PER_CMD).min(max_native);
+            let fis = FISRegisterH2D::new(
+                0x80,
+                0x35,
+                0,
+                start_native + offset,
+                chunks as u16,
+                0,
+                0
+            );
+            let bytes = (chunks * self.block_size) as usize;
+            let addr = src.phys() + offset * self.block_size;
+            self.send_command(&fis, addr, bytes, true)?;
+            offset += chunks;
+        }
+
+        Ok(())
     }
 
-    fn zero_blocks(&self, _start_block: u64, _count: u64) -> Result<(), StorageError> {
-        todo!()
+    fn zero_blocks(&self, start_block: u64, count: u64) -> Result<(), StorageError> {
+        let _guard = self.lock.lock();
+        let start_native = (start_block * BLOCK_SIZE) / self.block_size;
+        let count_native = (count * BLOCK_SIZE).div_ceil(self.block_size);
+        let max_native = (PRDS_PER_TABLE * PRD_MAX_BYTES) as u64 / self.block_size;
+
+        if start_native + count_native > self.block_count { return Err(StorageError::BlockOutOfBounds) }
+        
+        let size = (count_native.min(MAX_SECTORS_PER_CMD).min(max_native) * self.block_size) as usize;
+        let zero_buffer = PhysPage::new(size.div_ceil(PAGE_SIZE)).ok_or(StorageError::CommandFailed)?;
+
+        let mut fis = FISRegisterH2D::new(0x80, 0x35, 0, 0, 0, 0, 0);
+
+        let mut offset = 0;
+        while offset < count_native {
+            let chunks = (count_native - offset).min(MAX_SECTORS_PER_CMD).min(max_native);
+            fis.set_lba(start_native + offset);
+            fis.count = chunks as u16;
+            let bytes = (chunks * self.block_size) as usize;
+            self.send_command(&fis, zero_buffer.phys(), bytes, true)?;
+
+            offset += chunks;
+        }
+
+        Ok(())
+    }
+
+    fn sync(&self) -> Result<(), StorageError> {
+        let _guard = self.lock.lock();
+        let fis = FISRegisterH2D::new(0x80, 0xEA, 0, 0, 0, 0, 0);
+        self.send_command(&fis, PhysAddr::zero(), 0, false)
     }
 }

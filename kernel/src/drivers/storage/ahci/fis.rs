@@ -13,7 +13,7 @@ pub enum FISType {
     SetDeviceBits = 0xA1
 }
 
-/// Host to Device FIS Registeration
+/// Host to Device FIS Registration
 #[repr(C, packed)]
 pub struct FISRegisterH2D {
     // DWORD 0
@@ -63,6 +63,15 @@ impl FISRegisterH2D {
             control,
             _reserved: [0; 4]
         }
+    }
+
+    pub const fn set_lba(&mut self, lba: u64) {
+        self.lba0 = lba as u8;
+        self.lba1 = (lba >> 8) as u8;
+        self.lba2 = (lba >> 16) as u8;
+        self.lba3 = (lba >> 24) as u8;
+        self.lba4 = (lba >> 32) as u8;
+        self.lba5 = (lba >> 40) as u8;
     }
 
     pub const fn to_bytes(&self) -> &[u8] {

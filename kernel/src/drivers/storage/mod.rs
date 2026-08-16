@@ -1,15 +1,18 @@
 //! Storage Driver for `MaramOS`.
 //! It also provides abstractions for Storage I/O
 
-use crate::{InterruptMutex, KernelError, drivers::storage::ahci::AHCIDrive, errors::MemoryError, helpers::Time, log_warn, memory::PhysPage, println};
+use crate::{KernelError, errors::MemoryError, helpers::Time, memory::PhysPage, log_warn};
 use super::pci::{DeviceType, find_devices, claim_device};
-use alloc::vec::Vec;
+use alloc::{sync::Arc, vec::Vec};
+use spin::Mutex;
 use thiserror::Error;
 
-pub const BLOCK_SIZE: usize = 512;
+pub const BLOCK_SIZE: u64 = 512;
 const TIMEOUT: Time = Time::Seconds(5);
 
 mod ahci;
+
+use ahci::AHCIDrive;
 
 #[derive(Error, Debug)]
 pub enum StorageError {
@@ -25,7 +28,15 @@ pub enum StorageError {
     Timeout
 }
 
-static DRIVES: InterruptMutex<Vec<AHCIDrive>> = InterruptMutex::new(Vec::new());
+static DRIVES: Mutex<Vec<Arc<AHCIDrive>>> = Mutex::new(Vec::new());
+
+pub fn claim_drive<F: Fn(&AHCIDrive) -> bool>(f: F) -> Option<Arc<AHCIDrive>> {
+    let lock = DRIVES.lock();
+    for (i, drive) in lock.iter().enumerate() {
+        if f(drive) { return Some(lock[i].clone()) }
+    }
+    None
+}
 
 pub fn init() {
     let ahci_devices = find_devices(|d| d.device_type() == DeviceType::Ahci)
@@ -34,12 +45,10 @@ pub fn init() {
 
     for device in ahci_devices {
         match ahci::init(device) {
-            Ok(d) => DRIVES.lock().extend(d),
-            Err(e) => log_warn!("Failed to intialize drive: {e}")
+            Ok(d) => DRIVES.lock().extend(d.into_iter().map(Arc::new)),
+            Err(e) => log_warn!("Failed to initialize drive: {e}")
         }
     }
-
-    println!("HELP");
 }
 
 pub trait StorageDrive {
@@ -55,6 +64,9 @@ pub trait StorageDrive {
     /// Zero `count` 512 byte blocks starting at `start_block`
     fn zero_blocks(&self, start_block: u64, count: u64) -> Result<(), StorageError>;
 
+    /// Write all cached writes to disk
+    fn sync(&self) -> Result<(), StorageError>;
+    
     /// Read `count` 512 byte blocks starting at `start_block`
     fn read_smart(&self, start_block: u64, count: u64) -> Result<PhysPage, KernelError> {
         let page_count = count.div_ceil(8) as usize;
