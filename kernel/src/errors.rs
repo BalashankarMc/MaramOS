@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::drivers::{pci::PCIError, ps2::PS2Error, storage::StorageError};
+use crate::drivers::{pci::PCIError, ps2::PS2Error, storage::{GPTError, StorageError}};
 
 #[derive(Error, Debug)]
 pub enum KernelError {
@@ -24,6 +24,10 @@ impl From<PCIError> for KernelError {
 
 impl From<StorageError> for KernelError {
     fn from(value: StorageError) -> Self { Self::DriverError(value.into()) }
+}
+
+impl From<GPTError> for KernelError {
+    fn from(value: GPTError) -> Self { Self::DriverError(value.into()) }
 }
 
 pub type KernelResult<T> = Result<T, KernelError>;
@@ -78,4 +82,6 @@ pub enum DriverError {
     PCIe(#[from] PCIError),
     #[error(transparent)]
     Storage(#[from] StorageError),
+    #[error(transparent)]
+    Gpt(#[from] GPTError)
 }

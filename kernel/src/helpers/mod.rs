@@ -1,10 +1,12 @@
 mod interrupt_mutex;
 mod late_init;
+mod crc32;
 mod time;
 
 pub use interrupt_mutex::*;
 pub use late_init::LateInit;
 pub use time::Time;
+pub use crc32::crc32;
 
 pub fn wait_while<F: Fn() -> bool>(f: F) {
     while f() { core::hint::spin_loop() }
@@ -21,5 +23,5 @@ pub fn wait_timeout<F: Fn() -> bool>(f: F, timeout: &Time) -> bool {
 
 pub fn wait(time: &Time) {
     let start = crate::acpi::passed_nanos();
-    while start - crate::acpi::passed_nanos() < time.to_nanos() { core::hint::spin_loop() }
+    while crate::acpi::passed_nanos() - start < time.to_nanos() { core::hint::spin_loop() }
 }

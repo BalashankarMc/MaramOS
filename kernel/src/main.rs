@@ -1,8 +1,9 @@
 #![no_std]
 #![no_main]
 #![allow(dead_code, clippy::cast_possible_truncation)]
-#![deny(clippy::all, unused_import_braces)]
-#![feature(abi_x86_interrupt)]
+#![deny(clippy::all)]
+#![warn(unused_import_braces)]
+#![feature(abi_x86_interrupt, const_index, const_trait_impl)]
 
 extern crate alloc;
 
@@ -38,14 +39,16 @@ extern "C" fn kmain() -> ! {
     
     if let Err(e) = drivers::ps2::init() { log_warn!("{e}") }
     if let Err(e) = drivers::pci::init() { log_warn!("{e}") }
-    drivers::storage::init();
+    if let Err(e) = drivers::storage::init() { log_warn!("{e}") }
 
     log_success!("Kernel ready");
+
+    println!("Partitions: {:#?}", drivers::storage::claim_drive(|_| true).unwrap().partitions());
 
     loop {
         if let Some(key) = drivers::ps2::KEYBOARD_BUFFER.lock().pop_front() {
             print!("{:?}", key.code);
-        }
+        } else { x86_64::instructions::hlt() }
     }
 }
 

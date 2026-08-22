@@ -26,6 +26,7 @@ const PRD_STRIDE: u64 = 0x80 + PRDS_PER_TABLE as u64 * 16;
 const MAX_SECTORS_PER_CMD: u64 = u16::MAX as u64;
 const FATAL_PXIS_MASK: u32 = 0xF << 27;
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct MappedPCI(PCIFunction, MMIORegion);
 
@@ -265,28 +266,25 @@ pub fn init(device: PCIFunction) -> Result<Vec<AHCIDrive>, StorageError> {
 }
 
 impl StorageDrive for AHCIDrive {
-    fn block_count(&self) -> u64 {
-        (self.block_count * self.block_size) / BLOCK_SIZE
-    }
+    fn block_count(&self) -> u64 { self.block_count }
+    fn block_size(&self) -> u64 { self.block_size }
 
-    fn read_blocks(&self, start_block: u64, count: u64, dest: &mut PhysPage) -> Result<(), StorageError> {
+    fn read_blocks(&self, start_block: u64, count: u64, dest: &PhysPage) -> Result<(), StorageError> {
         let _guard = self.lock.lock();
-        let start_native = (start_block * BLOCK_SIZE) / self.block_size;
-        let count_native = (count * BLOCK_SIZE).div_ceil(self.block_size);
-        let max_native = (PRDS_PER_TABLE * PRD_MAX_BYTES) as u64 / self.block_size;
+        let max = (PRDS_PER_TABLE * PRD_MAX_BYTES) as u64 / self.block_size;
 
-        if start_native + count_native > self.block_count { return Err(StorageError::BlockOutOfBounds) }
+        if start_block + count > self.block_count { return Err(StorageError::BlockOutOfBounds) }
 
-        if dest.count * PAGE_SIZE < (count_native * self.block_size) as usize { return Err(StorageError::CommandFailed) }
+        if dest.count * PAGE_SIZE < (count * self.block_size) as usize { return Err(StorageError::CommandFailed) }
 
         let mut offset = 0;
-        while offset < count_native {
-            let chunks = (count_native - offset).min(MAX_SECTORS_PER_CMD).min(max_native);
+        while offset < count {
+            let chunks = (count - offset).min(MAX_SECTORS_PER_CMD).min(max);
             let fis = FISRegisterH2D::new(
                 0x80,
                 0x25,
                 0,
-                start_native + offset,
+                start_block + offset,
                 chunks as u16,
                 0,
                 0
@@ -304,22 +302,20 @@ impl StorageDrive for AHCIDrive {
 
     fn write_blocks(&self, start_block: u64, count: u64, src: &PhysPage) -> Result<(), StorageError> {
         let _guard = self.lock.lock();
-        let start_native = (start_block * BLOCK_SIZE) / self.block_size;
-        let count_native = (count * BLOCK_SIZE).div_ceil(self.block_size);
-        let max_native = (PRDS_PER_TABLE * PRD_MAX_BYTES) as u64 / self.block_size;
+        let max = (PRDS_PER_TABLE * PRD_MAX_BYTES) as u64 / self.block_size;
 
-        if start_native + count_native > self.block_count { return Err(StorageError::BlockOutOfBounds) }
+        if start_block + count > self.block_count { return Err(StorageError::BlockOutOfBounds) }
 
-        if src.count * PAGE_SIZE < (count_native * self.block_size) as usize { return Err(StorageError::CommandFailed) }
+        if src.count * PAGE_SIZE < (count * self.block_size) as usize { return Err(StorageError::CommandFailed) }
 
         let mut offset = 0;
-        while offset < count_native {
-            let chunks = (count_native - offset).min(MAX_SECTORS_PER_CMD).min(max_native);
+        while offset < count {
+            let chunks = (count - offset).min(MAX_SECTORS_PER_CMD).min(max);
             let fis = FISRegisterH2D::new(
                 0x80,
                 0x35,
                 0,
-                start_native + offset,
+                start_block + offset,
                 chunks as u16,
                 0,
                 0
@@ -327,33 +323,6 @@ impl StorageDrive for AHCIDrive {
             let bytes = (chunks * self.block_size) as usize;
             let addr = src.phys() + offset * self.block_size;
             self.send_command(&fis, addr, bytes, true)?;
-            offset += chunks;
-        }
-
-        Ok(())
-    }
-
-    fn zero_blocks(&self, start_block: u64, count: u64) -> Result<(), StorageError> {
-        let _guard = self.lock.lock();
-        let start_native = (start_block * BLOCK_SIZE) / self.block_size;
-        let count_native = (count * BLOCK_SIZE).div_ceil(self.block_size);
-        let max_native = (PRDS_PER_TABLE * PRD_MAX_BYTES) as u64 / self.block_size;
-
-        if start_native + count_native > self.block_count { return Err(StorageError::BlockOutOfBounds) }
-        
-        let size = (count_native.min(MAX_SECTORS_PER_CMD).min(max_native) * self.block_size) as usize;
-        let zero_buffer = PhysPage::new(size.div_ceil(PAGE_SIZE)).ok_or(StorageError::CommandFailed)?;
-
-        let mut fis = FISRegisterH2D::new(0x80, 0x35, 0, 0, 0, 0, 0);
-
-        let mut offset = 0;
-        while offset < count_native {
-            let chunks = (count_native - offset).min(MAX_SECTORS_PER_CMD).min(max_native);
-            fis.set_lba(start_native + offset);
-            fis.count = chunks as u16;
-            let bytes = (chunks * self.block_size) as usize;
-            self.send_command(&fis, zero_buffer.phys(), bytes, true)?;
-
             offset += chunks;
         }
 

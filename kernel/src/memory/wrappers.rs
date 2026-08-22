@@ -48,6 +48,12 @@ impl PhysPage {
         true
     }
 
+    /// Zero this page range
+    pub fn zero(&self) {
+        // We know this range is mapped. Safe
+        unsafe { super::physical::zero_pages(self.start, self.count) };
+    }
+
     pub const fn leak(self) -> (VirtAddr, PhysAddr, usize) {
         let res = (self.start, self.phys, self.count);
         core::mem::forget(self);
