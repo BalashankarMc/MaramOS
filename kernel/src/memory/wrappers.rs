@@ -14,7 +14,7 @@ pub struct PhysPage {
 }
 
 impl PhysPage {
-    /// Allocate a new range of `count` pages
+    /// Allocate a new range of zeroed `count` pages
     pub fn new(count: usize) -> Option<Self> {
         let start = super::physical::alloc_pages(count)?;
         Some(Self {

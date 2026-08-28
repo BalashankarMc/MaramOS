@@ -7,6 +7,7 @@
 
 extern crate alloc;
 
+mod fs;
 mod acpi;
 mod errors;
 mod memory;
@@ -25,13 +26,12 @@ pub use prelude::*;
 
 #[unsafe(no_mangle)]
 extern "C" fn kmain() -> ! {
-
     requests::init().expect("Failed to initialize requests!");
 
     stdout::init();
     memory::init().expect("Failed to setup memory!");
     descriptors::init().expect("Failed to setup descriptors");
-    acpi::init().unwrap();
+    acpi::init().expect("Failed to initialize ACPI Subsystems");
 
     acpi::init_lapic_timer(descriptors::HardwareInterrupts::Timer.as_u8());
 
@@ -43,8 +43,6 @@ extern "C" fn kmain() -> ! {
 
     log_success!("Kernel ready");
 
-    println!("Partitions: {:#?}", drivers::storage::claim_drive(|_| true).unwrap().partitions());
-
     loop {
         if let Some(key) = drivers::ps2::KEYBOARD_BUFFER.lock().pop_front() {
             print!("{:?}", key.code);
@@ -55,7 +53,6 @@ extern "C" fn kmain() -> ! {
 fn halt_loop() -> ! {
     loop { x86_64::instructions::hlt() }
 }
-
 
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {

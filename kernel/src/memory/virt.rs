@@ -186,7 +186,7 @@ fn unmap_range(start: VirtAddr, pages: usize) {
         let l4_idx = virt.p4_index();
         if l4[l4_idx].is_unused() {
             skip_to_boundary(&mut virt, &mut rem, 0x7F_FFFF_FFFF);
-            continue;
+            continue
         }
 
         let l3 = get_pagetable(&l4[l4_idx]);
@@ -194,16 +194,14 @@ fn unmap_range(start: VirtAddr, pages: usize) {
 
         if l3[l3_idx].flags().contains(PageTableFlags::HUGE_PAGE) {
             l3[l3_idx].set_unused();
-            if l3.iter().all(PageTableEntry::is_unused) {
-                free_frame_and_clear(&mut l4[l4_idx]);
-            }
+            if l3.iter().all(PageTableEntry::is_unused) { free_frame_and_clear(&mut l4[l4_idx]) }
             skip_to_boundary(&mut virt, &mut rem, 0x3FFF_FFFF);
-            continue;
+            continue
         }
 
         if l3[l3_idx].is_unused() {
             skip_to_boundary(&mut virt, &mut rem, 0x3FFF_FFFF);
-            continue;
+            continue
         }
 
         let l2 = get_pagetable(&l3[l3_idx]);
@@ -211,33 +209,23 @@ fn unmap_range(start: VirtAddr, pages: usize) {
 
         if l2[l2_idx].flags().contains(PageTableFlags::HUGE_PAGE) {
             l2[l2_idx].set_unused();
-            if l2.iter().all(PageTableEntry::is_unused) {
-                free_frame_and_clear(&mut l3[l3_idx]);
-            }
-            if l3.iter().all(PageTableEntry::is_unused) {
-                free_frame_and_clear(&mut l4[l4_idx]);
-            }
+            if l2.iter().all(PageTableEntry::is_unused) { free_frame_and_clear(&mut l3[l3_idx]) }
+            if l3.iter().all(PageTableEntry::is_unused) { free_frame_and_clear(&mut l4[l4_idx]) }
             skip_to_boundary(&mut virt, &mut rem, 0x1F_FFFF);
-            continue;
+            continue
         }
 
         if l2[l2_idx].is_unused() {
             skip_to_boundary(&mut virt, &mut rem, 0x1F_FFFF);
-            continue;
+            continue
         }
 
         let l1 = get_pagetable(&l2[l2_idx]);
         l1[virt.p1_index()].set_unused();
 
-        if l1.iter().all(PageTableEntry::is_unused) {
-            free_frame_and_clear(&mut l2[l2_idx]);
-        }
-        if l2.iter().all(PageTableEntry::is_unused) {
-            free_frame_and_clear(&mut l3[l3_idx]);
-        }
-        if l3.iter().all(PageTableEntry::is_unused) {
-            free_frame_and_clear(&mut l4[l4_idx]);
-        }
+        if l1.iter().all(PageTableEntry::is_unused) { free_frame_and_clear(&mut l2[l2_idx]) }
+        if l2.iter().all(PageTableEntry::is_unused) { free_frame_and_clear(&mut l3[l3_idx]) }
+        if l3.iter().all(PageTableEntry::is_unused) { free_frame_and_clear(&mut l4[l4_idx]) }
 
         skip_to_boundary(&mut virt, &mut rem, 0xFFF);
     }

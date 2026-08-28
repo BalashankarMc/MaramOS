@@ -21,6 +21,7 @@ const EFI_GUID: Guid = Guid::new(0xC12A_7328, 0xF81F, 0x11D2, 0xBA4B, 0xA0_C93E_
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PartitionType {
     Efi,
+    LemonFS,
     Unknown(Guid)
 }
 
@@ -28,6 +29,7 @@ impl Display for PartitionType {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let s = match self {
             Self::Efi => "EFI",
+            Self::LemonFS => "LemonFS",
             Self::Unknown(guid) => &format!("Unknown: {guid:?}")
         };
 
@@ -39,19 +41,21 @@ impl PartitionType {
     const fn guid(self) -> Guid {
         match self {
             Self::Efi => EFI_GUID,
+            Self::LemonFS => crate::fs::LEMONFS_GUID,
             Self::Unknown(guid) => guid
         }
     }
 
     const fn from_guid(guid: Guid) -> Self {
         match guid {
+            crate::fs::LEMONFS_GUID => Self::LemonFS,
             EFI_GUID => Self::Efi,
             _ => Self::Unknown(guid)
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Partition {
     pub start: u64,
     pub size_blocks: u64,

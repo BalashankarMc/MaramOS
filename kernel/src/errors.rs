@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::drivers::{pci::PCIError, ps2::PS2Error, storage::{GPTError, StorageError}};
+use crate::{drivers::{pci::PCIError, ps2::PS2Error, storage::{GPTError, StorageError}}, fs::FSError};
 
 #[derive(Error, Debug)]
 pub enum KernelError {
@@ -12,6 +12,8 @@ pub enum KernelError {
     ACPIError(#[from] ACPIError),
     #[error(transparent)]
     DriverError(#[from] DriverError),
+    #[error(transparent)]
+    FSError(#[from] FSError)
 }
 
 impl From<PS2Error> for KernelError {

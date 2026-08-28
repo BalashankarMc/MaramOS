@@ -9,6 +9,7 @@ test = false
 bench = false
 
 [dependencies]
+bitflags = "2.13.1"
 limine = "0.6.5"
 pc-keyboard = "0.9.0"
 simple-psf = "0.1.2"

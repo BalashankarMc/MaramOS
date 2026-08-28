@@ -16,7 +16,7 @@ const BLOCKS_PER_PAGE: usize = PAGE_SIZE.div_ceil(BLOCK_SIZE as usize);
 mod ahci;
 mod gpt;
 
-pub use gpt::{Partition, Guid};
+pub use gpt::{Partition, PartitionType, Guid};
 
 #[derive(Error, Debug)]
 pub enum StorageError {
@@ -57,20 +57,27 @@ impl Drive {
         self.partitions.iter().find(f)
     }
 
-    pub fn read(&self, partition_guid: Guid, offset: u64, count: u64) -> KernelResult<PhysPage> {
+    pub fn zero(&self, partition: &Partition, offset: u64, count: u64) -> KernelResult<()> {
         if offset.checked_add(count).is_none() { Err(StorageError::BlockOutOfBounds)? }
 
-        let partition = self.find_partition(|p| p.guid == partition_guid).ok_or(StorageError::CommandFailed)?;
+        if offset + count > partition.size_blocks { Err(StorageError::BlockOutOfBounds)? }
+
+        let start_block = partition.start.checked_add(offset).ok_or(StorageError::BlockOutOfBounds)?;
+        self.inner.zero_blocks(start_block, count)
+    }
+
+    pub fn read(&self, partition: &Partition, offset: u64, count: u64) -> KernelResult<PhysPage> {
+        if offset.checked_add(count).is_none() { Err(StorageError::BlockOutOfBounds)? }
+
         if offset + count > partition.size_blocks { Err(StorageError::BlockOutOfBounds)? }
 
         let start_block = partition.start.checked_add(offset).ok_or(StorageError::BlockOutOfBounds)?;
         self.inner.read_smart(start_block, count)
     }
 
-    pub fn write(&self, partition_guid: Guid, offset: u64, count: u64, src: &PhysPage) -> KernelResult<()> {
+    pub fn write(&self, partition: &Partition, offset: u64, count: u64, src: &PhysPage) -> KernelResult<()> {
         if offset.checked_add(count).is_none() { Err(StorageError::BlockOutOfBounds)? }
 
-        let partition = self.find_partition(|p| p.guid == partition_guid).ok_or(StorageError::CommandFailed)?;
         if offset + count > partition.size_blocks { Err(StorageError::BlockOutOfBounds)? }
         if src.count * PAGE_SIZE < (count * self.inner.block_size()) as usize { Err(StorageError::CommandFailed)? }
 
@@ -84,6 +91,9 @@ impl Drive {
         self.inner.sync()?;
         Ok(())
     }
+
+    pub fn block_size(&self) -> u64 { self.inner.block_size() }
+    pub fn block_count(&self) -> u64 { self.inner.block_count() }
 }
 
 static DRIVES: Mutex<Vec<Arc<Drive>>> = Mutex::new(Vec::new());
@@ -138,6 +148,23 @@ trait StorageDrive: Debug + Send + Sync {
 
     /// Write `count` blocks starting at `start_block` from `src`
     fn write_blocks(&self, start_block: u64, count: u64, src: &PhysPage) -> Result<(), StorageError>;
+
+    fn zero_blocks(&self, start_block: u64, count: u64) -> KernelResult<()> {
+        let pages = (count * self.block_size()).div_ceil(PAGE_SIZE as u64).min(512); // Max 512 pages (2MiB)
+        let page = PhysPage::new(pages as usize).ok_or(MemoryError::OutOfMemory)?;
+        
+        let mut rem = count;
+        let mut offset = 0;
+
+        while rem > 0 {
+            let c = rem.min((1024 * 1024 * 2) / self.block_size()); // Max Blocks
+            self.write_blocks(start_block + offset, c, &page)?;
+            rem -= c;
+            offset += c;
+        }
+
+        Ok(())
+    }
 
     /// Write all cached writes to disk
     fn sync(&self) -> Result<(), StorageError>;
