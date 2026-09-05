@@ -16,6 +16,7 @@ mod display;
 mod drivers;
 mod helpers;
 mod requests;
+mod scheduling;
 mod allocators;
 mod descriptors;
 
@@ -26,20 +27,27 @@ pub use prelude::*;
 
 #[unsafe(no_mangle)]
 extern "C" fn kmain() -> ! {
+    x86_64::instructions::interrupts::disable();
+
     requests::init().expect("Failed to initialize requests!");
 
     stdout::init();
     memory::init().expect("Failed to setup memory!");
     descriptors::init().expect("Failed to setup descriptors");
     acpi::init().expect("Failed to initialize ACPI Subsystems");
-
-    acpi::init_lapic_timer(descriptors::HardwareInterrupts::Timer.as_u8());
+    scheduling::init().unwrap();
 
     x86_64::instructions::interrupts::enable();
     
     if let Err(e) = drivers::ps2::init() { log_warn!("{e}") }
     if let Err(e) = drivers::pci::init() { log_warn!("{e}") }
     if let Err(e) = drivers::storage::init() { log_warn!("{e}") }
+
+    let drive = drivers::storage::claim_drive(|_| true).unwrap();
+    let mut fs = fs::init(&drive).unwrap().pop().unwrap();
+
+    let files = fs.list("/".into()).unwrap();
+    println!("{:#?}", files);
 
     log_success!("Kernel ready");
 
@@ -49,6 +57,7 @@ extern "C" fn kmain() -> ! {
         } else { x86_64::instructions::hlt() }
     }
 }
+
 
 fn halt_loop() -> ! {
     loop { x86_64::instructions::hlt() }

@@ -29,7 +29,7 @@ pub fn init() -> Result<(), PS2Error> {
     if read_data() != 0xFA { return Err(PS2Error::KeyboardACKFailed) }
 
     // Add the Interrupt Handler
-    add_idt_entry(keyboard_handler, HardwareInterrupts::Keyboard.as_u8());
+    add_idt_entry(keyboard_handler, HardwareInterrupts::Keyboard.as_u8()).map_err(|_| PS2Error::IRQFail)?;
 
     // Route interrupts
     crate::acpi::redirect_ioapic(1, HardwareInterrupts::Keyboard.as_u8(), 0, 0).map_err(|_| PS2Error::IRQFail)?;

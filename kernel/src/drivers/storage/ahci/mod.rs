@@ -213,9 +213,9 @@ pub fn init(device: PCIFunction) -> Result<Vec<AHCIDrive>, StorageError> {
         port_registers.serr.write(u32::MAX); // Clear SERR
 
         // Allocate memory for DMA Buffers
-        let command_list = PhysPage::new(1).ok_or(InitFailed)?;
-        let fis_buffer = PhysPage::new(1).ok_or(InitFailed)?;
-        let command_tables = PhysPage::new(3).ok_or(InitFailed)?;
+        let command_list = PhysPage::new(1).map_err(|_| InitFailed)?;
+        let fis_buffer = PhysPage::new(1).map_err(|_| InitFailed)?;
+        let command_tables = PhysPage::new(3).map_err(|_| InitFailed)?;
 
         // Update port with correct buffers
         port::rebase(&port_registers, command_list.phys(), fis_buffer.phys())?;
@@ -244,7 +244,7 @@ pub fn init(device: PCIFunction) -> Result<Vec<AHCIDrive>, StorageError> {
             lock: Mutex::new(())
         };
 
-        let id_buf = PhysPage::new(1).ok_or(InitFailed)?;
+        let id_buf = PhysPage::new(1).map_err(|_| InitFailed)?;
         let fis = FISRegisterH2D::new(0x80, 0xEC, 0, 0, 0, 0, 0);
 
         drive.send_command(&fis, id_buf.phys(), 512, false).map_err(|_| InitFailed)?;

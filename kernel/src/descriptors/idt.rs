@@ -1,6 +1,10 @@
-use x86_64::{registers::control::Cr2, structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode}};
+use x86_64::{
+    VirtAddr,
+    registers::control::Cr2,
+    structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode}
+};
 
-use crate::{InterruptMutex, helpers::LateInit, log_warn};
+use crate::{InterruptMutex, KernelResult, helpers::LateInit, log_warn};
 
 static IDT: InterruptMutex<LateInit<InterruptDescriptorTable>> = InterruptMutex::new(LateInit::new());
 
@@ -11,7 +15,6 @@ pub fn init() {
     idt.general_protection_fault.set_handler_fn(general_protection_fault);
     idt.invalid_opcode.set_handler_fn(invalid_opcode);
     idt.divide_error.set_handler_fn(division_error);
-    idt[HardwareInterrupts::Timer.as_u8()].set_handler_fn(timer);
 
     // These handlers need IST Stacks
     // Safety: We know that each stack inedx is valid and not use by other interrupts. Safe
@@ -71,10 +74,10 @@ impl HardwareInterrupts {
     }
 }
 
-extern "x86-interrupt" fn timer(_stack_frame: InterruptStackFrame) {
-    crate::acpi::lapic_eoi();
-}
+pub fn add_idt_entry(f: extern "x86-interrupt" fn(InterruptStackFrame), index: u8) -> KernelResult<()> {
+    let mut idt = IDT.lock();
+    if idt[index].handler_addr() != VirtAddr::zero() { return Err(crate::KernelError::IDTRegisterError(index)) }
 
-pub fn add_idt_entry(handler: extern "x86-interrupt" fn(InterruptStackFrame), index: u8) {
-    IDT.lock().get_mut()[index].set_handler_fn(handler);
+    idt.get_mut()[index].set_handler_fn(f);
+    Ok(())
 }

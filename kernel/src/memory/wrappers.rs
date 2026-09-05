@@ -2,7 +2,9 @@ use core::marker::PhantomData;
 
 use x86_64::{PhysAddr, VirtAddr, structures::paging::PageTableFlags};
 
-use crate::memory::{PAGE_SIZE, virt::VirtualRegion};
+use crate::{errors::MemoryError, memory::{PAGE_SIZE, virt::VirtualRegion}};
+
+use super::virt::KERNEL_ALLOCATOR;
 
 /// A representation of physical page ranges
 #[derive(Debug)]
@@ -15,9 +17,9 @@ pub struct PhysPage {
 
 impl PhysPage {
     /// Allocate a new range of zeroed `count` pages
-    pub fn new(count: usize) -> Option<Self> {
-        let start = super::physical::alloc_pages(count)?;
-        Some(Self {
+    pub fn new(count: usize) -> Result<Self, MemoryError> {
+        let start = super::physical::alloc_pages(count).ok_or(MemoryError::OutOfMemory)?;
+        Ok(Self {
             start,
             count,
             phys: unsafe { super::virt_to_phys(start) }
@@ -77,9 +79,16 @@ pub struct MMIORegion(VirtualRegion);
 impl MMIORegion {
     /// Map `pages` pages starting at `phys` with MMIO flags
     pub fn new(phys: PhysAddr, pages: usize) -> Option<Self> {
-        let mut region = VirtualRegion::new(pages)?;
-        if region.map(phys, PageTableFlags::NO_CACHE | PageTableFlags::NO_EXECUTE | PageTableFlags::GLOBAL)
-            .is_err() { return None }
+        let mut lock = KERNEL_ALLOCATOR.lock();
+        let region = lock.alloc(pages)?;
+        let flags = PageTableFlags::NO_CACHE | PageTableFlags::NO_EXECUTE | PageTableFlags::GLOBAL |
+            PageTableFlags::WRITABLE | PageTableFlags::WRITE_THROUGH;
+            
+        if lock.map(&region, phys, flags).is_err() {
+            let _ = lock.free(region);
+            return None
+        }
+
         Some(Self(region))
     }
 
@@ -89,10 +98,10 @@ impl MMIORegion {
     /// Returns `Some(T)` on success
     /// and `None` on OOB
     pub fn read<T>(&self, offset: usize) -> Option<T> {
-        if offset + size_of::<T>() > self.0.length() { return None }
+        if offset + size_of::<T>() > self.0.size as usize { return None }
         if !offset.is_multiple_of(align_of::<T>()) { return None }
 
-        let ptr = self.0.address() + offset as u64;
+        let ptr = self.0.start + offset as u64;
 
         // Safety: As long as `self` is in scope, the memory region is guaranteed to be backed. Safe.
         Some(unsafe { ptr.as_ptr::<T>().read_volatile() })
@@ -103,10 +112,10 @@ impl MMIORegion {
     /// # Returns
     /// Returns `true` on success and `false` on OOB
     pub fn write<T>(&self, offset: usize, val: T) -> bool {
-        if offset + size_of::<T>() > self.0.length() { return false }
+        if offset + size_of::<T>() > self.0.size as usize { return false }
         if !offset.is_multiple_of(align_of::<T>()) { return false }
         
-        let ptr = self.0.address() + offset as u64;
+        let ptr = self.0.start + offset as u64;
 
         // Safety: As long as `self` is in scope, the memory region is guaranteed to be backed. Safe.
         unsafe { ptr.as_mut_ptr::<T>().write_volatile(val) };
@@ -115,9 +124,9 @@ impl MMIORegion {
 
     pub fn register<T>(&self, offset: usize) -> Option<MMIORegister<'_, T>> {
         if !offset.is_multiple_of(align_of::<T>()) { return None }
-        if offset + size_of::<T>() > self.0.length() { return None }
+        if offset + size_of::<T>() > self.0.size as usize { return None }
 
-        let ptr = self.0.address() + offset as u64;
+        let ptr = self.0.start + offset as u64;
         Some(MMIORegister { ptr: ptr.as_mut_ptr(), _marker: PhantomData })
     }
 }

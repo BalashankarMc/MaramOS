@@ -14,17 +14,21 @@ pub struct RangeAllocator {
 impl RangeAllocator {
     pub const fn new() -> Self { Self { free: Vec::new() } }
 
-    pub fn allocate(&mut self, size: usize) -> Option<usize> {
-        for (i, range) in self.free.iter_mut().enumerate() {
-            if range.length == size {
-                return Some(self.free.remove(i).start);
-            } else if range.length > size {
-                let res = range.start;
-                range.start += size;
-                range.length -= size;
+    pub fn allocate(&mut self, size: usize, align: usize) -> Option<usize> {
+        for i in 0..self.free.len() {
+            let range = self.free[i];
+            let aligned_start = range.start.next_multiple_of(align);
+            if aligned_start + size > range.start + range.length { continue }
 
-                return Some(res)
-            }
+            self.free.remove(i);
+
+            if aligned_start > range.start { self.free.push(Range { start: range.start, length: aligned_start - range.start }) }
+            let tail = range.start + range.length - (aligned_start + size);
+            if tail != 0 { self.free.push(Range { start: aligned_start + size, length: tail }) }
+            
+            self.coalesce();
+
+            return Some(aligned_start);
         }
         None
     }

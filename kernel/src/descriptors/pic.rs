@@ -5,17 +5,17 @@ use x86_64::instructions::port::Port;
 /// Disables the legacy PIC
 pub fn disable() {
     unsafe {
-        Port::new(0x20).write(0x11_u8);
-        Port::new(0xA0).write(0x11_u8);
+        Port::<u8>::new(0x20).write(0x11);
+        Port::<u8>::new(0xA0).write(0x11);
     }
     
-    let mut master = Port::new(0x21);
-    let mut slave = Port::new(0xA1);
+    let mut master = Port::<u8>::new(0x21);
+    let mut slave = Port::<u8>::new(0xA1);
 
     unsafe {
         // ICW2: vector base for master/slave
-        master.write(0x20_u8);
-        slave.write(0x28_u8);
+        master.write(0x20);
+        slave.write(0x28);
 
         // ICW3: cascade wiring
         master.write(4);

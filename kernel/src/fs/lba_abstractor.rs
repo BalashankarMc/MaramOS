@@ -1,6 +1,6 @@
 use alloc::sync::Arc;
 
-use crate::{KernelResult, drivers::storage::{Drive, Partition, StorageError}, errors::MemoryError, memory::{PAGE_SIZE, PhysPage}};
+use crate::{KernelResult, drivers::storage::{Drive, Partition, StorageError}, memory::{PAGE_SIZE, PhysPage}};
 
 #[derive(Debug)]
 pub struct PartitionDrive {
@@ -24,7 +24,7 @@ impl PartitionDrive {
         let native_count = native_end - native_start;
 
         let native_pages = self.drive.read(&self.partition, native_start, native_count)?;
-        let dest = PhysPage::new((count as usize * 512).div_ceil(PAGE_SIZE)).ok_or(MemoryError::OutOfMemory)?;
+        let dest = PhysPage::new((count as usize * 512).div_ceil(PAGE_SIZE))?;
 
         for i in 0..count {
             let off = ((start + i) * 512 - native_start * block_size) as usize;
@@ -48,7 +48,7 @@ impl PartitionDrive {
         // Caller must have supplied at least count * 512 bytes
         if src.count * PAGE_SIZE < count as usize * 512 { Err(StorageError::CommandFailed)? }
 
-        let staging = PhysPage::new(((native_count * block_size) as usize).div_ceil(PAGE_SIZE)).ok_or(MemoryError::OutOfMemory)?;
+        let staging = PhysPage::new(((native_count * block_size) as usize).div_ceil(PAGE_SIZE))?;
 
         for i in 0..native_count {
             let native_block = native_start + i;
@@ -83,7 +83,7 @@ impl PartitionDrive {
 
         if count == 0 { return Ok(()) }
 
-        let page = PhysPage::new(count.min(MAX_SECTORS).div_ceil(8) as usize).ok_or(MemoryError::OutOfMemory)?;
+        let page = PhysPage::new(count.min(MAX_SECTORS).div_ceil(8) as usize)?;
         let mut sector = start;
         let mut rem = count;
 

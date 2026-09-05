@@ -13,7 +13,9 @@ pub enum KernelError {
     #[error(transparent)]
     DriverError(#[from] DriverError),
     #[error(transparent)]
-    FSError(#[from] FSError)
+    FSError(#[from] FSError),
+    #[error("Failed to register IDT entry")]
+    IDTRegisterError(u8)
 }
 
 impl From<PS2Error> for KernelError {

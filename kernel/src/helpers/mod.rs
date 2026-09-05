@@ -2,13 +2,11 @@ mod interrupt_mutex;
 mod late_init;
 mod crc;
 mod time;
-mod hash;
 
 pub use interrupt_mutex::*;
 pub use late_init::LateInit;
 pub use time::Time;
 pub use crc::*;
-pub use hash::fnv1a;
 
 pub fn wait_while<F: Fn() -> bool>(f: F) {
     while f() { core::hint::spin_loop() }

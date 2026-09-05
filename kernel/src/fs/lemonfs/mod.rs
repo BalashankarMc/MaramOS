@@ -279,7 +279,7 @@ impl FileSystem for LemonFS {
         let sizes = links.iter().map(|l| l.size);
         let max_size = sizes.clone().max().unwrap() as usize;
         file.size = sizes.sum::<u64>();
-        let page = PhysPage::new(max_size.div_ceil(PAGE_SIZE)).ok_or(FSError::IOError)?;
+        let page = PhysPage::new(max_size.div_ceil(PAGE_SIZE)).map_err(|_| FSError::IOError)?;
 
         let mut offset = 0;
         for link in &links {

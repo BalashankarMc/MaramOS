@@ -3,7 +3,7 @@
 
 use core::fmt::Debug;
 
-use crate::{KernelError, KernelResult, errors::MemoryError, helpers::Time, log_warn, memory::{PAGE_SIZE, PhysPage}};
+use crate::{KernelError, KernelResult, helpers::Time, log_warn, memory::{PAGE_SIZE, PhysPage}};
 use super::pci::{DeviceType, find_devices, claim_device};
 use alloc::{sync::Arc, vec::Vec};
 use spin::Mutex;
@@ -151,7 +151,7 @@ trait StorageDrive: Debug + Send + Sync {
 
     fn zero_blocks(&self, start_block: u64, count: u64) -> KernelResult<()> {
         let pages = (count * self.block_size()).div_ceil(PAGE_SIZE as u64).min(512); // Max 512 pages (2MiB)
-        let page = PhysPage::new(pages as usize).ok_or(MemoryError::OutOfMemory)?;
+        let page = PhysPage::new(pages as usize)?;
         
         let mut rem = count;
         let mut offset = 0;
@@ -174,7 +174,7 @@ trait StorageDrive: Debug + Send + Sync {
     fn read_smart(&self, start_block: u64, count: u64) -> Result<PhysPage, KernelError> {
         let blocks_per_page = PAGE_SIZE.div_ceil(self.block_size() as usize);
         let page_count = (count as usize).div_ceil(blocks_per_page);
-        let page = PhysPage::new(page_count).ok_or(MemoryError::OutOfMemory)?;
+        let page = PhysPage::new(page_count)?;
 
         self.read_blocks(start_block, count, &page)?;
 

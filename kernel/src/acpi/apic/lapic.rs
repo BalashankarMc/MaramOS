@@ -4,7 +4,7 @@
 
 use x86_64::registers::model_specific::{ApicBase, ApicBaseFlags, Msr};
 
-use crate::{LateInit, errors::ACPIError, helpers::wait_while};
+use crate::{LateInit, errors::ACPIError, helpers::{Time, wait_while}};
 
 const X2APIC_SVR: u32 = 0x80F;
 const X2APIC_ERROR_STATUS: u32 = 0x808;
@@ -55,27 +55,31 @@ pub fn send_self_ipi(vector: u8) {
     unsafe { Msr::new(X2APIC_SELF_IPI).write(u64::from(vector)); }
 }
 
-pub fn init_timer(vector: u8) {
+pub fn init_timer(vector: u8, interval: Time) {
     // Initialize MSRs
     let mut timer_icr = Msr::new(X2APIC_TIMER_ICR);
+    let mut timer_lvt = Msr::new(X2APIC_TIMER_LVT);
 
-    // Safety: Just more MSR writes
+    // Safety: MSR Writes
+    unsafe { timer_lvt.write(1 << 16) };
+
+    // Safety: Same as last
     unsafe {
         Msr::new(X2APIC_TIMER_DCR).write(3);
         timer_icr.write(u64::from(u32::MAX));
     }
 
     let start = crate::acpi::passed_nanos();
-    wait_while(|| { crate::acpi::passed_nanos() - start < 10_000_000 });
+    wait_while(|| { crate::acpi::passed_nanos() - start < interval.to_nanos() });
 
-    // Safety: Just more MSR writes
+    // Safety: Same
     let elapsed = u32::MAX - unsafe { Msr::new(X2APIC_TIMER_CCR).read() } as u32;
 
     let lvt_entry = u32::from(vector) | (1 << 17);
 
-    // Safety: More MSR writes
+    // Safety: Safe
     unsafe {
-        Msr::new(X2APIC_TIMER_LVT).write(u64::from(lvt_entry));
+        timer_lvt.write(u64::from(lvt_entry));
         timer_icr.write(u64::from(elapsed));
     }
 
