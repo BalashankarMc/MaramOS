@@ -64,7 +64,7 @@ impl AHCIDrive {
 
         // Zero command table header
         let offset = usize::from(slot) * PRD_STRIDE as usize;
-        self.command_tables.write_data(offset, CommandTableHeader::zeroed());
+        self.command_tables.write_data(offset, CommandTableHeader::zeroed()).map_err(|_| CommandFailed)?;
 
         // Write FIS
         let ct = unsafe {
@@ -101,7 +101,7 @@ impl AHCIDrive {
 
         // Write command header
         let offset = size_of::<CommandHeader>() * usize::from(slot);
-        if !self.command_list.write_data(offset, cmd_header) { return Err(CommandFailed) }
+        self.command_list.write_data(offset, cmd_header).map_err(|_| CommandFailed)?;
 
         // Clear IS
         port.is.write(u32::MAX);

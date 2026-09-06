@@ -81,7 +81,7 @@ pub fn free_frames(start: PhysAddr, count: usize) {
 }
 
 /// # Safety
-///  Safe only for non-const uses
+///  Safe only for oneshot uses, as this can generate multiple &mut refs to the same data (UB)
 pub unsafe fn active_l4_table<'a>() -> &'a mut PageTable {
     unsafe { &mut *(phys_to_virt(Cr3::read().0.start_address()).as_mut_ptr()) }
 }

@@ -1,17 +1,16 @@
-use crate::KernelResult;
+use crate::KResult;
 use crate::log_success;
 
 mod gdt;
 mod idt;
 mod pic;
 
-pub use gdt::SELECTORS;
-pub use idt::HardwareInterrupts;
-pub use idt::add_idt_entry;
+pub use gdt::{SELECTORS, update_rsp0};
+pub use idt::{HardwareInterrupts, add_idt_entry};
 
 /// Initializes a GDT, IDT and the PIC.
 /// Also disables the PIC
-pub fn init() -> KernelResult<()> {
+pub fn init() -> KResult<()> {
     gdt::init()?;
     idt::init();
     pic::disable();

@@ -2,7 +2,7 @@ use core::marker::PhantomData;
 
 use x86_64::{PhysAddr, VirtAddr, structures::paging::PageTableFlags};
 
-use crate::{errors::MemoryError, memory::{PAGE_SIZE, virt::VirtualRegion}};
+use crate::{KResult, errors::MemoryError, memory::{PAGE_SIZE, virt::VirtualRegion}};
 
 use super::virt::KERNEL_ALLOCATOR;
 
@@ -38,16 +38,16 @@ impl PhysPage {
 
     /// Write some data of type `T` into the page after `offset` bytes into the page
     /// Returns true on success and false on OOB
-    pub fn write_data<T>(&self, offset: usize, data: T) -> bool {
-        if self.count * PAGE_SIZE < offset + size_of::<T>() { return false }
+    pub fn write_data<T>(&self, offset: usize, data: T) -> Result<(), MemoryError> {
+        if self.count * PAGE_SIZE < offset + size_of::<T>() { return Err(MemoryError::OutOfBounds) }
 
         let ptr = self.start + offset as u64;
-        if !offset.is_multiple_of(align_of::<T>()) { return false }
+        if !offset.is_multiple_of(align_of::<T>()) { return Err(MemoryError::OutOfBounds) }
 
         // Safety: We did bounds checking and address validation already. Safe
         unsafe { ptr.as_mut_ptr::<T>().write(data) }
 
-        true
+        Ok(())
     }
 
     /// Zero this page range
@@ -140,4 +140,15 @@ pub struct MMIORegister<'a, T> {
 impl<T> MMIORegister<'_, T> {
     pub fn read(&self) -> T { unsafe { self.ptr.read_volatile() } }
     pub fn write(&self, val: T) { unsafe { self.ptr.write_volatile(val) } }
+}
+
+/// A `Stack` of memory for Kernel / User stacks. (5 Pages of 4KiB = 20KiB)
+#[derive(Debug)]
+pub struct Stack(pub PhysPage);
+
+impl Stack {
+    pub fn new() -> KResult<Self> { Ok(Self(PhysPage::new(5)?)) }
+    pub fn top(&self) -> VirtAddr { self.bottom() + (self.0.count * PAGE_SIZE) as u64 }
+    pub const fn bottom(&self) -> VirtAddr { self.0.start }
+    pub fn leak(self) -> (VirtAddr, PhysAddr, usize) { self.0.leak() }
 }

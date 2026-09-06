@@ -34,7 +34,7 @@ impl From<GPTError> for KernelError {
     fn from(value: GPTError) -> Self { Self::DriverError(value.into()) }
 }
 
-pub type KernelResult<T> = Result<T, KernelError>;
+pub type KResult<T> = Result<T, KernelError>;
 
 #[derive(Error, Debug)]
 pub enum MemoryError {
@@ -42,6 +42,8 @@ pub enum MemoryError {
     OutOfMemory,
     #[error("Attempted to perform an invalid mapping operation")]
     InvalidMapping,
+    #[error("Attempted to access memory out of bounds")]
+    OutOfBounds
 }
 
 #[derive(Error, Debug)]

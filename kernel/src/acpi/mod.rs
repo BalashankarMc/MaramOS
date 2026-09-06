@@ -6,7 +6,7 @@ use x86_64::{PhysAddr, VirtAddr};
 
 use crate::{
     KernelError,
-    KernelResult,
+    KResult,
     RSDP_RESPONSE,
     log_warn,
     descriptors::HardwareInterrupts,
@@ -126,7 +126,7 @@ impl XSDTSignature {
     }
 }
 
-pub fn init() -> KernelResult<()> {
+pub fn init() -> KResult<()> {
     // Safety: We know that this address was initialized by Limine
     let rsdp = unsafe { RSDP_RESPONSE.address.cast::<RSDPHeader>().read_unaligned() };
 

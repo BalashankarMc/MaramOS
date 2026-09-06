@@ -1,14 +1,13 @@
 use core::arch::naked_asm;
 
-use alloc::sync::Arc;
 use x86_64::structures::idt::InterruptStackFrame;
 
 use crate::{
-    InterruptMutex, KernelResult, LateInit,
-    helpers::Time,
-    memory::PhysPage,
+    InterruptMutex, KResult, LateInit,
     acpi::{init_lapic_timer, lapic_eoi},
     descriptors::{HardwareInterrupts, add_idt_entry},
+    helpers::Time,
+    memory::PhysPage
 };
 
 pub use self::{scheduler::Scheduler, task::Task};
@@ -19,9 +18,9 @@ mod scheduler;
 static SCHEDULER: LateInit<InterruptMutex<Scheduler>> = LateInit::new();
 pub const TIMER_TICK: Time = Time::Milliseconds(100);
 
-pub fn init() -> KernelResult<()> {
+pub fn init() -> KResult<()> {
     let stack = PhysPage::new(1)?;
-    let halt_task = Task::new(|| crate::halt_loop(), Arc::new(stack));
+    let halt_task = Task::new_kernel(|| crate::halt_loop(), stack);
 
     task::IDLE_TASK.init(halt_task);
     SCHEDULER.init(InterruptMutex::new(Scheduler::new()));

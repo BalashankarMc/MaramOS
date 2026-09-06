@@ -24,6 +24,8 @@ impl<T> InterruptMutex<T> {
         Self(Mutex::new(value))
     }
 
+    pub fn get_mut(&mut self) -> &mut T { self.0.get_mut() }
+
     /// Locks the Mutex, disables interrupts and returns a `MutexGuard`
     pub fn lock(&self) -> InterruptGuard<'_, T> {
         let int_status = interrupts::are_enabled();

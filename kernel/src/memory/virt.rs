@@ -56,6 +56,7 @@ pub struct VirtualRegion {
 }
 
 /// An allocator to hand out virtual memory from a L4 Page Table
+#[derive(Debug)]
 pub struct VMemAllocator {
     page_table: &'static mut PageTable,
     allocator: RangeAllocator
@@ -210,12 +211,21 @@ impl VMemAllocator {
         Some(VirtualRegion { start: VirtAddr::new(start as u64), size: size_bytes as u64 })
     }
 
-    #[allow(clippy::needless_pass_by_value)] // Consume VirtualRegion so it cannot be used
+    #[allow(clippy::needless_pass_by_value)] // Consume the `VirtualRegion` so it cannot be used again
     pub fn free(&mut self, region: VirtualRegion) -> Result<(), MemoryError> {
         self.unmap(&region)?;
         self.allocator.free(region.start.as_u64() as usize, region.size as usize);
         Ok(())
     }
+
+    /// Get the `PhysAddr` of this `VMemAllocator`'s L4 Table
+    pub fn l4(&self) -> PhysAddr {
+        let virt = VirtAddr::from_ptr(self.page_table);
+        
+        // Safety: The L4 must be covered by HHDM.
+        unsafe { virt_to_phys(virt) }
+    }
+
 }
 
 /// Find free Entries for an L4 Table

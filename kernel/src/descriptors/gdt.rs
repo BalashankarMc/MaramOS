@@ -1,9 +1,7 @@
-use x86_64::{instructions::tables::load_tss, registers::segmentation::{CS, DS, ES, SS, Segment}, structures::{gdt::{Descriptor, GlobalDescriptorTable, SegmentSelector}, tss::TaskStateSegment}};
+use x86_64::{VirtAddr, instructions::tables::load_tss, registers::segmentation::{CS, DS, ES, SS, Segment}, structures::{gdt::{Descriptor, GlobalDescriptorTable, SegmentSelector}, tss::TaskStateSegment}};
 
-use crate::{KernelResult, helpers::LateInit, memory::{PAGE_SIZE, PhysPage}};
+use crate::{KResult, helpers::LateInit, memory::Stack};
 
-const STACK_SIZE: usize = 20 * 0x400; // 20 MiB
-const STACK_PAGES: usize = STACK_SIZE.div_ceil(PAGE_SIZE); // 5 Pages
 const GDT_SIZE: usize = 64;
 
 static GDT: LateInit<GlobalDescriptorTable<GDT_SIZE>> = LateInit::new();
@@ -29,33 +27,26 @@ impl Selectors {
     }
 }
 
-pub fn init() -> KernelResult<()> {
+pub fn init() -> KResult<()> {
     let mut gdt = GlobalDescriptorTable::<GDT_SIZE>::empty();
     let kernel_code = gdt.append(Descriptor::kernel_code_segment());
     let kernel_data = gdt.append(Descriptor::kernel_data_segment());
-    let user_code = gdt.append(Descriptor::user_code_segment());
     let user_data = gdt.append(Descriptor::user_data_segment());
+    let user_code = gdt.append(Descriptor::user_code_segment());
 
-    let stack_pages = PhysPage::new(STACK_PAGES * 5)?;
-    let stack_addr = stack_pages.address();
-    let stack_size = STACK_SIZE as u64;
-
-    let stack0_base = stack_addr + stack_size;
-    let stack1_base = stack0_base + stack_size;
-    let stack2_base = stack1_base + stack_size;
-    let stack3_base = stack2_base + stack_size;
-    let priv_stack_base = stack3_base + stack_size;
-
-    stack_pages.leak();
+    let ist0_stack = Stack::new()?;
+    let ist1_stack = Stack::new()?;
+    let ist2_stack = Stack::new()?;
 
     let mut tss = TaskStateSegment::new();
-    tss.interrupt_stack_table[0] = stack0_base;
-    tss.interrupt_stack_table[1] = stack1_base;
-    tss.interrupt_stack_table[2] = stack2_base;
-    tss.interrupt_stack_table[3] = stack3_base;
-
-    tss.privilege_stack_table[0] = priv_stack_base;
+    tss.interrupt_stack_table[0] = ist0_stack.top();
+    tss.interrupt_stack_table[1] = ist1_stack.top();
+    tss.interrupt_stack_table[2] = ist2_stack.top();
     
+    ist0_stack.leak();
+    ist1_stack.leak();
+    ist2_stack.leak();
+
     let tss_ref = TSS.init(tss);
     let tss = gdt.append(Descriptor::tss_segment(tss_ref));
 
@@ -66,4 +57,13 @@ pub fn init() -> KernelResult<()> {
 
     SELECTORS.init(Selectors { kernel_code, kernel_data, user_code, user_data, tss }).load();
     Ok(())
+}
+
+// The TSS has no competing references, so, even though this is technically UB, it is safe
+#[allow(invalid_reference_casting)] // Intentional to update the RSP0
+pub fn update_rsp0(sp: VirtAddr) {
+    let addr = core::ptr::from_ref(TSS.get()) as usize as *mut TaskStateSegment;
+    // Safety: Deref of a safe pointer
+    let reference = unsafe { &mut *addr };
+    reference.privilege_stack_table[0] = sp;
 }

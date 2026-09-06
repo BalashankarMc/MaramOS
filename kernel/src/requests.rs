@@ -1,6 +1,6 @@
 use limine::{BaseRevision, request::{FramebufferRequest, FramebufferResponse, HhdmRepsonse, HhdmRequest, MemmapRequest, MemmapResponse, MpRequest, MpResponse, RsdpRequest, RsdpResponse}};
 
-use crate::{KernelError, KernelResult, LateInit};
+use crate::{KernelError, KResult, LateInit};
 
 #[used]
 #[unsafe(link_section = ".requests")]
@@ -36,7 +36,7 @@ pub static MP_RESPONSE: LateInit<&MpResponse> = LateInit::new();
 /// 
 /// # Errors
 /// Retruns `KernelError::BadLimineResp` on unfulfilled requests
-pub fn init() -> KernelResult<()> {
+pub fn init() -> KResult<()> {
     FB_RESPONSE.init(FRAMEBUFFER_REQUEST.response().ok_or(KernelError::BadLimineResp)?);
     MMAP_RESPONSE.init(MMAP_REQUEST.response().ok_or(KernelError::BadLimineResp)?);
     HHDM_RESPONSE.init(HHDM_REQUEST.response().ok_or(KernelError::BadLimineResp)?);

@@ -1,6 +1,6 @@
 use alloc::sync::Arc;
 
-use crate::{KernelResult, drivers::storage::{Drive, Partition, StorageError}, memory::{PAGE_SIZE, PhysPage}};
+use crate::{KResult, drivers::storage::{Drive, Partition, StorageError}, memory::{PAGE_SIZE, PhysPage}};
 
 #[derive(Debug)]
 pub struct PartitionDrive {
@@ -14,7 +14,7 @@ impl PartitionDrive {
     fn sectors_per_block(&self) -> u64 { self.drive.block_size() / 512 }
     pub fn sector_count(&self) -> u64 { self.partition.size_blocks * self.sectors_per_block() }
 
-    pub fn read_sectors(&self, start: u64, count: u64) -> KernelResult<PhysPage> {
+    pub fn read_sectors(&self, start: u64, count: u64) -> KResult<PhysPage> {
         if count == 0 { Err(StorageError::CommandFailed)? }
 
         let block_size = self.drive.block_size();
@@ -35,7 +35,7 @@ impl PartitionDrive {
         Ok(dest)
     }
 
-    pub fn write_sectors(&self, start: u64, count: u64, src: &PhysPage) -> KernelResult<()> {
+    pub fn write_sectors(&self, start: u64, count: u64, src: &PhysPage) -> KResult<()> {
         if count == 0 { return Ok(()) }
 
         let block_size = self.drive.block_size();
@@ -78,7 +78,7 @@ impl PartitionDrive {
         self.drive.write(&self.partition, native_start, native_count, &staging)
     }
 
-    pub fn zero_sectors(&self, start: u64, count: u64) -> KernelResult<()> {
+    pub fn zero_sectors(&self, start: u64, count: u64) -> KResult<()> {
         const MAX_SECTORS: u64 = 0x1000;
 
         if count == 0 { return Ok(()) }

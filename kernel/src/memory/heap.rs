@@ -2,7 +2,7 @@
 
 use core::alloc::GlobalAlloc;
 
-use crate::{KernelResult, allocators::BuddyAllocator, helpers::{InterruptMutex, LateInit}, memory::{PAGE_SIZE, PhysPage}};
+use crate::{KResult, allocators::BuddyAllocator, helpers::{InterruptMutex, LateInit}, memory::{PAGE_SIZE, PhysPage}};
 
 type Buddy = BuddyAllocator<4, 17, 64, true>;
 
@@ -11,7 +11,7 @@ static HEAP_PAGES: LateInit<PhysPage> = LateInit::new();
 
 const HEAP_SIZE: usize = 1024 * 1024;
 
-pub fn init() -> KernelResult<()> {
+pub fn init() -> KResult<()> {
 
     let pages = PhysPage::new(HEAP_SIZE.div_ceil(PAGE_SIZE))?;
 

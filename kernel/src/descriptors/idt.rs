@@ -4,7 +4,7 @@ use x86_64::{
     structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode}
 };
 
-use crate::{InterruptMutex, KernelResult, helpers::LateInit, log_warn};
+use crate::{InterruptMutex, KResult, helpers::LateInit, log_warn};
 
 static IDT: InterruptMutex<LateInit<InterruptDescriptorTable>> = InterruptMutex::new(LateInit::new());
 
@@ -74,7 +74,7 @@ impl HardwareInterrupts {
     }
 }
 
-pub fn add_idt_entry(f: extern "x86-interrupt" fn(InterruptStackFrame), index: u8) -> KernelResult<()> {
+pub fn add_idt_entry(f: extern "x86-interrupt" fn(InterruptStackFrame), index: u8) -> KResult<()> {
     let mut idt = IDT.lock();
     if idt[index].handler_addr() != VirtAddr::zero() { return Err(crate::KernelError::IDTRegisterError(index)) }
 

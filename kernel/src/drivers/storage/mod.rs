@@ -3,7 +3,7 @@
 
 use core::fmt::Debug;
 
-use crate::{KernelError, KernelResult, helpers::Time, log_warn, memory::{PAGE_SIZE, PhysPage}};
+use crate::{KernelError, KResult, helpers::Time, log_warn, memory::{PAGE_SIZE, PhysPage}};
 use super::pci::{DeviceType, find_devices, claim_device};
 use alloc::{sync::Arc, vec::Vec};
 use spin::Mutex;
@@ -57,7 +57,7 @@ impl Drive {
         self.partitions.iter().find(f)
     }
 
-    pub fn zero(&self, partition: &Partition, offset: u64, count: u64) -> KernelResult<()> {
+    pub fn zero(&self, partition: &Partition, offset: u64, count: u64) -> KResult<()> {
         if offset.checked_add(count).is_none() { Err(StorageError::BlockOutOfBounds)? }
 
         if offset + count > partition.size_blocks { Err(StorageError::BlockOutOfBounds)? }
@@ -66,7 +66,7 @@ impl Drive {
         self.inner.zero_blocks(start_block, count)
     }
 
-    pub fn read(&self, partition: &Partition, offset: u64, count: u64) -> KernelResult<PhysPage> {
+    pub fn read(&self, partition: &Partition, offset: u64, count: u64) -> KResult<PhysPage> {
         if offset.checked_add(count).is_none() { Err(StorageError::BlockOutOfBounds)? }
 
         if offset + count > partition.size_blocks { Err(StorageError::BlockOutOfBounds)? }
@@ -75,7 +75,7 @@ impl Drive {
         self.inner.read_smart(start_block, count)
     }
 
-    pub fn write(&self, partition: &Partition, offset: u64, count: u64, src: &PhysPage) -> KernelResult<()> {
+    pub fn write(&self, partition: &Partition, offset: u64, count: u64, src: &PhysPage) -> KResult<()> {
         if offset.checked_add(count).is_none() { Err(StorageError::BlockOutOfBounds)? }
 
         if offset + count > partition.size_blocks { Err(StorageError::BlockOutOfBounds)? }
@@ -87,7 +87,7 @@ impl Drive {
         Ok(())        
     }
 
-    pub fn sync(&self) -> KernelResult<()> {
+    pub fn sync(&self) -> KResult<()> {
         self.inner.sync()?;
         Ok(())
     }
@@ -106,7 +106,7 @@ pub fn claim_drive<F: Fn(&Drive) -> bool>(f: F) -> Option<Arc<Drive>> {
     None
 }
 
-pub fn init() -> KernelResult<()> {
+pub fn init() -> KResult<()> {
     let ahci_devices: Vec<Arc<dyn StorageDrive>> = find_devices(|d| d.device_type() == DeviceType::Ahci)
         .into_iter()
         .filter_map(claim_device)
@@ -149,7 +149,7 @@ trait StorageDrive: Debug + Send + Sync {
     /// Write `count` blocks starting at `start_block` from `src`
     fn write_blocks(&self, start_block: u64, count: u64, src: &PhysPage) -> Result<(), StorageError>;
 
-    fn zero_blocks(&self, start_block: u64, count: u64) -> KernelResult<()> {
+    fn zero_blocks(&self, start_block: u64, count: u64) -> KResult<()> {
         let pages = (count * self.block_size()).div_ceil(PAGE_SIZE as u64).min(512); // Max 512 pages (2MiB)
         let page = PhysPage::new(pages as usize)?;
         
