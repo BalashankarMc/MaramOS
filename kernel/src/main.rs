@@ -8,6 +8,7 @@
 extern crate alloc;
 
 mod fs;
+mod elf;
 mod acpi;
 mod errors;
 mod memory;
@@ -24,6 +25,8 @@ mod descriptors;
 mod stdout;
 
 pub use prelude::*;
+
+use self::scheduling::Task;
 
 #[unsafe(no_mangle)]
 extern "C" fn kmain() -> ! {
@@ -49,6 +52,10 @@ extern "C" fn kmain() -> ! {
     let files = fs.list("/".into()).unwrap();
     println!("{:#?}", files);
 
+    let bin = elf::load(&mut fs, "/init.elf".into()).unwrap();
+    let task = Task::from_binary(bin).unwrap();
+    scheduling::add_task(task);
+
     log_success!("Kernel ready");
 
     loop {
@@ -58,6 +65,9 @@ extern "C" fn kmain() -> ! {
     }
 }
 
+fn user_task() {
+    halt_loop()
+}
 
 fn halt_loop() -> ! {
     loop { x86_64::instructions::hlt() }

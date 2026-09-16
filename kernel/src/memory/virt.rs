@@ -3,9 +3,9 @@
 use alloc::vec::Vec;
 use x86_64::{PhysAddr, VirtAddr, registers::control::Cr3, structures::paging::{FrameAllocator, FrameDeallocator, MappedPageTable, Mapper, Page, PageSize, PageTable, PageTableFlags, PhysFrame, Size1GiB, Size2MiB, Size4KiB, mapper::{CleanUp, PageTableFrameMapping, UnmapError}, page_table::PageTableEntry}};
 
-use crate::{InterruptMutex, LateInit, allocators::RangeAllocator, errors::MemoryError};
+use crate::{InterruptMutex, LateInit, allocators::RangeAllocator};
 
-use super::{HHDM_OFFSET, phys_to_virt, physical::{alloc_pages, free_frames}, virt_to_phys};
+use super::{HHDM_OFFSET, MemoryError, phys_to_virt, physical::{alloc_pages, free_frames}, virt_to_phys};
 
 const SIZE_L1: u64 = 1 << 12; // 4 KiB
 const SIZE_L2: u64 = 1 << 21; // 2 MiB

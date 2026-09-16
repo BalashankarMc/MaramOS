@@ -2,7 +2,9 @@
 
 use x86_64::{PhysAddr, VirtAddr};
 
-use crate::{LateInit, errors::ACPIError, memory::phys_to_virt};
+use crate::{LateInit, memory::phys_to_virt};
+
+use super::ACPIError;
 
 static HPET_REGS: LateInit<VirtAddr> = LateInit::new();
 static HPET_PERIOD_FS: LateInit<u64> = LateInit::new();

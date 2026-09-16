@@ -20,20 +20,21 @@ clean:
 	rm disk.img
 
 disk:
-	dd if=/dev/zero of=$(DISK_IMG) bs=4M count=$(DISK_SIZE)
+	test -f $(DISK_IMG) || truncate -s $$(( $(DISK_SIZE) * 4 * 1024 * 1024 )) $(DISK_IMG)
 
-	parted -s $(DISK_IMG) mklabel gpt
-	parted -s $(DISK_IMG) mkpart ESP fat32 1MiB $(ESP_SIZE)MiB set 1 esp on
-	parted -s $(DISK_IMG) mkpart LemonFS $(ESP_SIZE)MiB 100%
-	sgdisk -t 2:$(LEMONFS_GUID) -c 2:LemonFS $(DISK_IMG)
+	@set -e; \
+	if ! python3 tools/fat_tool.py --image $(DISK_IMG) info 2>/dev/null | grep -qi '$(LEMONFS_GUID)'; then \
+		echo "re-creating partition table"; \
+		parted -s $(DISK_IMG) mklabel gpt; \
+		parted -s $(DISK_IMG) mkpart ESP fat32 1MiB $(ESP_SIZE)MiB set 1 esp on; \
+		parted -s $(DISK_IMG) mkpart LemonFS $(ESP_SIZE)MiB 100%; \
+		sgdisk -t 2:$(LEMONFS_GUID) -c 2:LemonFS $(DISK_IMG); \
+	fi
 
-	S=$$(parted -s $(DISK_IMG) unit s print | awk '/^ *1/ {print $$2}' | tr -d 's') && \
-	N=$$(parted -s $(DISK_IMG) unit s print | awk '/^ *1/ {print $$4}' | tr -d 's') && \
-	truncate -s $$((N * 512)) /tmp/esp.img && \
-	mformat -F -i /tmp/esp.img && \
-	mmd -i /tmp/esp.img ::/EFI ::/EFI/BOOT ::/boot && \
-	mcopy -i /tmp/esp.img limine-files/BOOTX64.EFI ::/EFI/BOOT/ && \
-	mcopy -i /tmp/esp.img limine-files/limine.conf ::/boot/ && \
-	mcopy -i /tmp/esp.img kernel.elf ::/boot/ && \
-	dd if=/tmp/esp.img of=$(DISK_IMG) bs=512 seek=$$S conv=notrunc && \
-	rm -f /tmp/esp.img
+	python3 tools/fat_tool.py --image $(DISK_IMG) is-formatted || \
+	python3 tools/fat_tool.py --image $(DISK_IMG) format
+
+	python3 tools/fat_tool.py --image $(DISK_IMG) mkdir /EFI /EFI/BOOT /boot
+	python3 tools/fat_tool.py --image $(DISK_IMG) write limine-files/BOOTX64.EFI /EFI/BOOT/BOOTX64.EFI
+	python3 tools/fat_tool.py --image $(DISK_IMG) write limine-files/limine.conf /boot/limine.conf
+	python3 tools/fat_tool.py --image $(DISK_IMG) write kernel.elf /boot/kernel.elf

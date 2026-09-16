@@ -1,3 +1,6 @@
+#![allow(clippy::manual_assert)]
+
+use x86_64::PrivilegeLevel;
 use x86_64::{
     VirtAddr,
     registers::control::Cr2,
@@ -38,19 +41,38 @@ extern "x86-interrupt" fn breakpoint(stack_frame: InterruptStackFrame) {
 
 extern "x86-interrupt" fn page_fault(stack_frame: InterruptStackFrame, err_code: PageFaultErrorCode) {
     let addr = Cr2::read().unwrap().as_u64();
-    panic!("Page Fault\nAccessed address: 0x{addr:2X}\nError Code: {err_code:?}\nStack frame:{stack_frame:#?}");
+
+    if stack_frame.code_segment.rpl() == PrivilegeLevel::Ring0 {
+        panic!("Page Fault\nAccessed address: 0x{addr:2X}\nError Code: {err_code:?}\nStack frame:{stack_frame:#?}");
+    }
+
+    // Fault from user task
+    crate::scheduling::kill_active_task(u64::MAX);
 }
 
 extern "x86-interrupt" fn general_protection_fault(stack_frame: InterruptStackFrame, err_code: u64) {
-    panic!("General Protection Fault!\nError Code: {err_code}\nStack Frame: {stack_frame:#?}")
+    if stack_frame.code_segment.rpl() == PrivilegeLevel::Ring0 {
+        panic!("General Protection Fault!\nError Code: {err_code}\nStack Frame: {stack_frame:#?}")
+    }
+
+    // User Fault
+    crate::scheduling::kill_active_task(u64::MAX - 1);
 }
 
-extern "x86-interrupt" fn invalid_opcode(_stack_frame: InterruptStackFrame) {
-    panic!("Unknown opcode!");
+extern "x86-interrupt" fn invalid_opcode(stack_frame: InterruptStackFrame) {
+    if stack_frame.code_segment.rpl() == PrivilegeLevel::Ring0 {
+        panic!("Unknown opcode!");
+    }
+
+    crate::scheduling::kill_active_task(u64::MAX - 2);
 }
 
-extern "x86-interrupt" fn division_error(_stack_frame: InterruptStackFrame) {
-    panic!("Division Error!");
+extern "x86-interrupt" fn division_error(stack_frame: InterruptStackFrame) {
+    if stack_frame.code_segment.rpl() == PrivilegeLevel::Ring0 {
+        panic!("Division Error!");
+    }
+
+    crate::scheduling::kill_active_task(u64::MAX - 3);
 }
 
 extern "x86-interrupt" fn non_maskable_interrupt(_stack_frame: InterruptStackFrame) {

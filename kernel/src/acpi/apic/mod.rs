@@ -3,7 +3,9 @@
 use alloc::vec::Vec;
 use x86_64::VirtAddr;
 
-use crate::{LateInit, acpi::SDTHeader, errors::ACPIError};
+use crate::{LateInit, acpi::SDTHeader};
+
+use super::ACPIError;
 
 pub mod ioapic;
 pub mod lapic;

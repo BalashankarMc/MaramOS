@@ -1,5 +1,6 @@
 //! Kernel Memory Module
 
+use thiserror::Error;
 use x86_64::{PhysAddr, VirtAddr, registers::control::Cr3, structures::paging::{PageSize, PhysFrame, Size4KiB}};
 use crate::{HHDM_RESPONSE, KResult, LateInit};
 
@@ -16,11 +17,21 @@ pub static HHDM_OFFSET: LateInit<u64> = LateInit::new();
 
 pub use wrappers::{PhysPage, Stack, MMIORegister, MMIORegion};
 pub use virt::{VMemAllocator, VirtualRegion, AddressSpace};
-pub use user::{map_page, new_user_allocator};
+pub use user::new_user_allocator;
+
+#[derive(Error, Debug)]
+pub enum MemoryError {
+    #[error("Out of Memory!")]
+    OutOfMemory,
+    #[error("Attempted to perform an invalid mapping operation")]
+    InvalidMapping,
+    #[error("Attempted to access memory out of bounds")]
+    OutOfBounds
+}
+
 
 pub fn phys_to_virt(phys: PhysAddr) -> VirtAddr { VirtAddr::new(phys.as_u64() + *HHDM_OFFSET) }
 unsafe fn virt_to_phys(virt: VirtAddr) -> PhysAddr { PhysAddr::new(virt.as_u64() - *HHDM_OFFSET) }
-
 
 pub fn init() -> KResult<()> {
     HHDM_OFFSET.init(HHDM_RESPONSE.offset);

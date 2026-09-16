@@ -4,7 +4,7 @@
 
 use x86_64::registers::model_specific::{ApicBase, ApicBaseFlags, Msr};
 
-use crate::{LateInit, errors::ACPIError, helpers::{Time, wait_while}};
+use crate::{LateInit, acpi::ACPIError, helpers::{Time, wait_while}};
 
 const X2APIC_SVR: u32 = 0x80F;
 const X2APIC_ERROR_STATUS: u32 = 0x808;

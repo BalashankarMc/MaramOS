@@ -22,7 +22,7 @@ pub trait FileSystem: Debug + Send + Sync {
     fn list(&mut self, path: String) -> Result<Vec<String>, FSError>;
     fn create(&mut self, path: String, flags: u64) -> Result<(), FSError>;
     fn delete(&mut self, path: String) -> Result<(), FSError>;
-    fn size(&mut self, path: String) -> Result<u64, FSError>;
+    fn file_size(&mut self, path: String) -> Result<u64, FSError>;
     fn route_symlink(&mut self, symlink_path: String, dest_path: String) -> Result<(), FSError>;
     fn sync(&mut self) -> Result<(), FSError>;
 }

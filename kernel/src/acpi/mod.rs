@@ -2,6 +2,7 @@
 //! and provides handles for some hardware devices like the HPET and LAPIC Timers
 
 use alloc::vec::Vec;
+use thiserror::Error;
 use x86_64::{PhysAddr, VirtAddr};
 
 use crate::{
@@ -10,7 +11,6 @@ use crate::{
     RSDP_RESPONSE,
     log_warn,
     descriptors::HardwareInterrupts,
-    errors::ACPIError,
     memory::phys_to_virt};
 
 mod apic;
@@ -31,6 +31,40 @@ pub use apic::lapic::id as lapic_id;
 pub use apic::lapic::init_timer as init_lapic_timer;
 pub use apic::ioapic::redirect as redirect_ioapic;
 pub use apic::ioapic::unmask as unmask_ioapic;
+
+#[derive(Error, Debug)]
+pub enum ACPIError {
+    #[error("RSDP checksum is invalid")]
+    RSDPIntegrityFailed,
+    #[error("RSDP revision is not 2 (ACPI 2.0+)")]
+    RSDPUnsupportedRevision,
+    #[error("XSDT checksum is invalid")]
+    XSDTChecksumFailed,
+    #[error("SDT entry checksum is invalid")]
+    SDTChecksumFailed,
+    #[error("FADT revision is too old (requires >= 2)")]
+    FADTRevisionTooOld,
+    #[error("FADT has no reset register")]
+    FADTNoResetRegister,
+    #[error("FADT reset register uses unsupported address space")]
+    FADTUnsupportedResetAddressSpace,
+    #[error("HPET capability register reports zero period")]
+    HPETPeriodZero,
+    #[error("MADT contains no I/O APIC entry")]
+    MADTNoIoApicFound,
+    #[error("MADT entry has zero length (infinite loop)")]
+    MADTEntryLengthZero,
+    #[error("I/O APIC was not initialized (missing MADT entry)")]
+    IOAPICNotInitialized,
+    #[error("GSI is below I/O APIC GSI base")]
+    GSIUnderflow,
+    #[error("HPET has not been initialized yet")]
+    HPETNotInitialized,
+    #[error("LAPIC base address frame is zero/unmapped")]
+    LAPICBaseNotMapped,
+    #[error("System does not support X2APIC mode")]
+    NoX2APIC,
+}
 
 pub fn trigger_interrupt(int: HardwareInterrupts) {
     apic::lapic::send_self_ipi(int.as_u8());

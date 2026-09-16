@@ -29,7 +29,7 @@ impl PartitionDrive {
         for i in 0..count {
             let off = ((start + i) * 512 - native_start * block_size) as usize;
             let buf = native_pages.read_data::<[u8; 512]>(off).ok_or(StorageError::CommandFailed)?;
-            dest.write_data((i * 512) as usize, buf);
+            dest.write_data((i * 512) as usize, buf)?;
         }
         
         Ok(dest)
@@ -63,7 +63,7 @@ impl PartitionDrive {
                     let read_offset = (j * 512 - native_block * block_size) as usize;
                     let staging_offset = (j * 512 - native_start * block_size) as usize;
                     let data = tmp.read_data::<[u8; 512]>(read_offset).ok_or(StorageError::CommandFailed)?;
-                    staging.write_data(staging_offset, data);
+                    staging.write_data(staging_offset, data)?;
                 }
             }
 
@@ -71,7 +71,7 @@ impl PartitionDrive {
                 let caller_offset = ((j - start) * 512) as usize;
                 let staging_offset = (j * 512 - native_start * block_size) as usize;
                 let data = src.read_data::<[u8; 512]>(caller_offset).ok_or(StorageError::CommandFailed)?;
-                staging.write_data(staging_offset, data);
+                staging.write_data(staging_offset, data)?;
             }
         }
 

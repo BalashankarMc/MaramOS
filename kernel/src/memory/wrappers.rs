@@ -2,9 +2,9 @@ use core::marker::PhantomData;
 
 use x86_64::{PhysAddr, VirtAddr, structures::paging::PageTableFlags};
 
-use crate::{KResult, errors::MemoryError, memory::{PAGE_SIZE, virt::VirtualRegion}};
+use crate::{KResult, memory::{PAGE_SIZE, virt::VirtualRegion}};
 
-use super::virt::KERNEL_ALLOCATOR;
+use super::{virt::KERNEL_ALLOCATOR, MemoryError};
 
 /// A representation of physical page ranges
 #[derive(Debug)]

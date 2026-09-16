@@ -2,17 +2,23 @@ use core::sync::atomic::{AtomicU64, Ordering};
 
 use alloc::{sync::Arc, vec::Vec};
 use x86_64::VirtAddr;
+use x86_64::structures::paging::PageTableFlags;
 
+use crate::elf::LoadedBinary;
+use crate::memory::VirtualRegion;
 use crate::{KResult, LateInit, descriptors::SELECTORS, helpers::Time, memory::{PAGE_SIZE, PhysPage, Stack, VMemAllocator}};
 
 static ID: AtomicU64 = AtomicU64::new(0);
 pub static IDLE_TASK: LateInit<Task> = LateInit::new();
 
+const USER_STACK_PAGES: usize = 16;
+const USER_STACK_TOP: VirtAddr = VirtAddr::new(0x7FFF_FFFF_F000);
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TaskState {
     Ready,
     Wait(Time),
-    Terminate
+    Terminate(u64)
 }
 
 #[derive(Debug, Clone)]
@@ -33,7 +39,8 @@ pub struct Task {
     pub stack: Arc<PhysPage>, // Use `PhysPage` for arbitrary size
     pub pages: Vec<Arc<PhysPage>>,
     pub entry: usize,
-    pub sp: usize
+    pub sp: usize,
+    pub parent: Option<Arc<Task>>
 }
 
 impl Task {
@@ -50,7 +57,8 @@ impl Task {
             sp: write_stack(&stack, entry as u64, rsp, cs, ds) + stack.address().as_u64() as usize,
             stack: Arc::new(stack),
             pages: Vec::new(),
-            entry
+            entry,
+            parent: None
         }
     }
 
@@ -73,6 +81,24 @@ impl Task {
             pages: Vec::new(),
             entry: entry.as_u64() as usize
         })
+    }
+
+    pub fn from_binary(mut bin: LoadedBinary) -> KResult<Self> {
+        let kstack = Stack::new()?;
+        let ustack = PhysPage::new(USER_STACK_PAGES)?;
+
+        let size = (USER_STACK_PAGES * PAGE_SIZE) as u64;
+        bin.address_space.0.map(
+            &VirtualRegion { start: USER_STACK_TOP - size, size },
+            ustack.phys(),
+            PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE | PageTableFlags::USER_ACCESSIBLE
+        )?;
+
+        let mut task = Self::new_user(bin.entry, USER_STACK_TOP, kstack.0, bin.address_space)?;
+        task.pages.extend(bin.segments.into_iter().map(Arc::new));
+        task.pages.push(Arc::new(ustack));
+
+        Ok(task)
     }
 }
 

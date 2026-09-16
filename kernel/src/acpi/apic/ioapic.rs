@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 use x86_64::{PhysAddr, VirtAddr};
 
-use crate::{LateInit, errors::ACPIError, memory::phys_to_virt};
+use crate::{LateInit, acpi::ACPIError, memory::phys_to_virt};
 
 const RTE_BASE: usize = 0x10;
 

@@ -6,10 +6,10 @@ use crate::{acpi::passed_nanos, descriptors::update_rsp0, memory::KERNEL_L4};
 use super::{SCHEDULER, task::{IDLE_TASK, Task, TaskState, TaskType}};
 
 pub struct Scheduler {
-    curr: Task,
-    ready: VecDeque<Task>,
-    terminate: Vec<Task>,
-    sleep: Vec<Task>
+    pub(crate) curr: Task,
+    pub(crate) ready: VecDeque<Task>,
+    pub(crate) terminate: Vec<Task>,
+    pub(crate) sleep: Vec<Task>
 }
 
 impl Scheduler {
@@ -35,7 +35,7 @@ pub extern "C" fn sched_logic(old_sp: usize) -> usize {
     for (i, task) in sched.sleep.iter().enumerate() {
         match task.state {
             TaskState::Wait(x) if x.to_nanos() < passed_nanos() => wake_queue.push(i),
-            TaskState::Ready | TaskState::Terminate => wake_queue.push(i),
+            TaskState::Ready | TaskState::Terminate(_) => wake_queue.push(i),
             TaskState::Wait(_) => ()
         }
     }
@@ -86,7 +86,7 @@ pub extern "C" fn sched_logic(old_sp: usize) -> usize {
 fn move_to_queue(scheduler: &mut Scheduler, task: Task) {
     match task.state {
         TaskState::Ready => scheduler.ready.push_back(task),
-        TaskState::Terminate => scheduler.terminate.push(task),
+        TaskState::Terminate(_) => scheduler.terminate.push(task),
         TaskState::Wait(_) => {
             scheduler.sleep.push(task);
         }

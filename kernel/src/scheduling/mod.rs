@@ -10,6 +10,7 @@ use crate::{
     memory::PhysPage
 };
 
+use self::task::TaskState;
 pub use self::{scheduler::Scheduler, task::Task};
 
 mod task;
@@ -18,11 +19,16 @@ mod scheduler;
 static SCHEDULER: LateInit<InterruptMutex<Scheduler>> = LateInit::new();
 pub const TIMER_TICK: Time = Time::Milliseconds(100);
 
+fn halt_task() {
+    // Drain dead tasks
+    SCHEDULER.lock().terminate.clear();
+}
+
 pub fn init() -> KResult<()> {
     let stack = PhysPage::new(1)?;
-    let halt_task = Task::new_kernel(|| crate::halt_loop(), stack);
+    let halt = Task::new_kernel(halt_task, stack);
 
-    task::IDLE_TASK.init(halt_task);
+    task::IDLE_TASK.init(halt);
     SCHEDULER.init(InterruptMutex::new(Scheduler::new()));
 
     // Register interrupt handler
@@ -33,8 +39,12 @@ pub fn init() -> KResult<()> {
     Ok(())
 }
 
-pub fn add_task(task: Task) { SCHEDULER.lock().add_task(task) }
+pub fn kill_active_task(err_code: u64) {
+    SCHEDULER.lock().curr.state = TaskState::Terminate(err_code);
+    yield_now();
+}
 
+pub fn add_task(task: Task) { SCHEDULER.lock().add_task(task) }
 pub fn yield_now() { crate::acpi::trigger_interrupt(HardwareInterrupts::Timer) }
 
 #[unsafe(naked)]

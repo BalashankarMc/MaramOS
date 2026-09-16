@@ -2,8 +2,8 @@
 
 use x86_64::{structures::paging::{PageTable, PageTableFlags}};
 
-use crate::{KResult, errors::MemoryError};
-use super::{AddressSpace, PhysPage, VMemAllocator, VirtualRegion, physical::active_l4_table};
+use crate::KResult;
+use super::{AddressSpace, PhysPage, VMemAllocator, VirtualRegion, MemoryError, physical::active_l4_table};
 
 pub fn new_user_allocator() -> KResult<(VMemAllocator, PhysPage)> {
     let page = PhysPage::new(1)?;

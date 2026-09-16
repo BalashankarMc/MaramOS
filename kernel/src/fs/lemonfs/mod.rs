@@ -154,7 +154,7 @@ impl FileSystem for LemonFS {
         Ok(())
     }
 
-    fn size(&mut self, path: String) -> Result<u64, FSError> {
+    fn file_size(&mut self, path: String) -> Result<u64, FSError> {
         let path = Path::from_string(path);
         if path.is_root() { return Err(FSError::IsRoot) }
 
