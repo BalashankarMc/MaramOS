@@ -24,7 +24,7 @@ static RSDP_REQUEST: RsdpRequest = RsdpRequest::new();
 
 #[used]
 #[unsafe(link_section = ".requests")]
-static MP_REQUEST: MpRequest = MpRequest::new(0);
+static MP_REQUEST: MpRequest = MpRequest::new(1);
 
 pub static FB_RESPONSE: LateInit<&FramebufferResponse> = LateInit::new();
 pub static MMAP_RESPONSE: LateInit<&MemmapResponse> = LateInit::new();

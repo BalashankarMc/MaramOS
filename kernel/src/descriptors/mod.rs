@@ -1,20 +1,11 @@
-use crate::KResult;
-use crate::log_success;
-
 mod gdt;
 mod idt;
 mod pic;
 
-pub use gdt::{SELECTORS, update_rsp0};
-pub use idt::{HardwareInterrupts, add_idt_entry};
+pub use idt::{IDT, HardwareInterrupts, add_idt_entry};
+pub use gdt::{Selectors, new_gdt};
 
-/// Initializes a GDT, IDT and the PIC.
-/// Also disables the PIC
-pub fn init() -> KResult<()> {
-    gdt::init()?;
+pub fn init() {
     idt::init();
     pic::disable();
-
-    log_success!("Descriptors Initialized!");
-    Ok(())
 }

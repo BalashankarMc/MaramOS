@@ -1,10 +1,12 @@
 use alloc::{collections::VecDeque, vec::Vec};
 use x86_64::{registers::control::{Cr3, Cr3Flags}, structures::paging::{PhysFrame, Size4KiB}};
 
-use crate::{acpi::passed_nanos, descriptors::update_rsp0, memory::KERNEL_L4};
+use crate::smp::{current_cpu, set_rsp0};
+use crate::{acpi::passed_nanos, memory::KERNEL_L4};
 
-use super::{SCHEDULER, task::{IDLE_TASK, Task, TaskState, TaskType}};
+use super::task::{Task, TaskState, TaskType};
 
+#[derive(Debug, Clone)]
 pub struct Scheduler {
     pub(crate) curr: Task,
     pub(crate) ready: VecDeque<Task>,
@@ -13,9 +15,9 @@ pub struct Scheduler {
 }
 
 impl Scheduler {
-    pub fn new() -> Self {
+    pub const fn new(idle: Task) -> Self {
         Self {
-            curr: IDLE_TASK.get().clone(),
+            curr: idle,
             ready: VecDeque::new(),
             terminate: Vec::new(),
             sleep: Vec::new()
@@ -23,10 +25,48 @@ impl Scheduler {
     }
 
     pub fn add_task(&mut self, t: Task) { self.ready.push_back(t) }
+
+    /// Returns the number of kernel and user tasks
+    pub fn task_count(&self) -> (usize, usize) {
+        let mut kernel = 0;
+        let mut user = 0;
+
+        for task in &self.ready {
+            match task.type_ {
+                TaskType::Kernel => kernel += 1,
+                TaskType::User { address_space: _, syscall_stack: _, priv_stack: _, parent_id: _ } => user += 1
+            }
+        }
+
+        (kernel, user)
+    }
+
+    /// Take `count` user tasks from this scheduler
+    pub fn take_user_tasks(&mut self, count: usize) -> Option<Vec<Task>> {
+        if count > self.task_count().1 { return None }
+
+        let mut tasks = Vec::new();
+        let mut pop_queue = Vec::new();
+
+        for (i, task) in self.ready.iter().enumerate() {
+            if pop_queue.len() >= count { break }
+
+            if matches!(&task.type_, TaskType::User { address_space: _, syscall_stack: _, priv_stack: _, parent_id: _ }) {
+                pop_queue.push(i);
+            }
+        }
+
+        for i in pop_queue.into_iter().rev() {
+            let task = self.ready.remove(i)?;
+            tasks.push(task);
+        }
+
+        Some(tasks)
+    }
 }
 
 pub extern "C" fn sched_logic(old_sp: usize) -> usize {
-    let mut sched = SCHEDULER.lock();
+    let mut sched = current_cpu().scheduler.lock();
 
     sched.curr.sp = old_sp;
 
@@ -50,7 +90,7 @@ pub extern "C" fn sched_logic(old_sp: usize) -> usize {
     if next_task.is_none() && sched.curr.state == TaskState::Ready { return sched.curr.sp }
     if next_task.is_none() {
         if sched.curr.state == TaskState::Ready { return sched.curr.sp }
-        next_task = Some(IDLE_TASK.clone());
+        next_task = Some(current_cpu().idle.clone());
     }
 
     // Unwrap: Guaranteed to be `Some` on line 52
@@ -62,7 +102,7 @@ pub extern "C" fn sched_logic(old_sp: usize) -> usize {
             unsafe { Cr3::write(*KERNEL_L4, Cr3Flags::empty()) };
         },
 
-        TaskType::User { address_space, syscall_stack: _, priv_stack } => {
+        TaskType::User { address_space, syscall_stack: _, priv_stack, parent_id: _ } => {
             // Swap to user L4
             let addr = address_space.0.l4();
             let frame = PhysFrame::<Size4KiB>::containing_address(addr);
@@ -71,7 +111,7 @@ pub extern "C" fn sched_logic(old_sp: usize) -> usize {
             unsafe { Cr3::write(frame, Cr3Flags::empty()) };
 
             // Update RSP0 to `priv_stack`
-            update_rsp0(priv_stack.top());
+            set_rsp0(priv_stack.top());
         }
     }
 

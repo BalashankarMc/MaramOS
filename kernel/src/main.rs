@@ -8,6 +8,7 @@
 extern crate alloc;
 
 mod fs;
+mod smp;
 mod elf;
 mod acpi;
 mod errors;
@@ -26,19 +27,19 @@ mod stdout;
 
 pub use prelude::*;
 
-use self::scheduling::Task;
+use self::{elf::load, scheduling::Task};
 
 #[unsafe(no_mangle)]
 extern "C" fn kmain() -> ! {
     x86_64::instructions::interrupts::disable();
 
     requests::init().expect("Failed to initialize requests!");
-
     stdout::init();
     memory::init().expect("Failed to setup memory!");
-    descriptors::init().expect("Failed to setup descriptors");
+    smp::init().expect("Failed to setup SMP");
     acpi::init().expect("Failed to initialize ACPI Subsystems");
     scheduling::init().unwrap();
+    smp::boot();
 
     x86_64::instructions::interrupts::enable();
     
@@ -49,24 +50,17 @@ extern "C" fn kmain() -> ! {
     let drive = drivers::storage::claim_drive(|_| true).unwrap();
     let mut fs = fs::init(&drive).unwrap().pop().unwrap();
 
-    let files = fs.list("/".into()).unwrap();
-    println!("{:#?}", files);
-
-    let bin = elf::load(&mut fs, "/init.elf".into()).unwrap();
-    let task = Task::from_binary(bin).unwrap();
-    scheduling::add_task(task);
-
     log_success!("Kernel ready");
+
+    let bin = load(&mut fs, "/bin/init.elf".into()).expect("Failed to load binary: /bin/init.elf");
+    let task = Task::from_binary(bin, 0).expect("Failed to make /bin/init.elf a task!");
+    scheduling::add_task(task);
 
     loop {
         if let Some(key) = drivers::ps2::KEYBOARD_BUFFER.lock().pop_front() {
             print!("{:?}", key.code);
         } else { x86_64::instructions::hlt() }
     }
-}
-
-fn user_task() {
-    halt_loop()
 }
 
 fn halt_loop() -> ! {

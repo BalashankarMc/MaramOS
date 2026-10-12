@@ -1,13 +1,12 @@
 use core::arch::naked_asm;
-
 use x86_64::structures::idt::InterruptStackFrame;
 
+use crate::smp::{CPUS, current_cpu};
 use crate::{
-    InterruptMutex, KResult, LateInit,
+    KResult,
     acpi::{init_lapic_timer, lapic_eoi},
     descriptors::{HardwareInterrupts, add_idt_entry},
-    helpers::Time,
-    memory::PhysPage
+    helpers::Time
 };
 
 use self::task::TaskState;
@@ -16,21 +15,74 @@ pub use self::{scheduler::Scheduler, task::Task};
 mod task;
 mod scheduler;
 
-static SCHEDULER: LateInit<InterruptMutex<Scheduler>> = LateInit::new();
 pub const TIMER_TICK: Time = Time::Milliseconds(100);
 
-fn halt_task() {
-    // Drain dead tasks
-    SCHEDULER.lock().terminate.clear();
+pub fn idle_task() {
+    loop {
+        // Lock own scheuler
+        let mut lock = current_cpu().scheduler.lock();
+        lock.terminate.clear();
+        let task_count = lock.task_count().1;
+        drop(lock); // `busiest_queue` locks all schedulers
+
+        let Some(busiest) = busiest_queue() else { continue };
+        if busiest.0 == current_cpu().id as usize || busiest.1 < 2 { continue }
+
+        // Lock the busiest scheduler
+        let mut busy_lock = CPUS[busiest.0].scheduler.lock();
+        let take_count = busy_lock.task_count().1.saturating_sub(task_count) / 2;
+
+        let Some(tasks) = busy_lock.take_user_tasks(take_count) else { continue };
+        
+        drop(busy_lock); // Never hold 2 locks at once
+
+        let mut lock = current_cpu().scheduler.lock();
+        lock.ready.extend(tasks);
+
+        drop(lock);
+
+        if take_count > 0 { yield_now() }
+
+        core::hint::spin_loop();
+    }
+}
+
+/// Returns the CPU ID of the busiest scheduler (one with most user tasks) and the task count
+fn busiest_queue() -> Option<(usize, usize)> {
+    let mut max = 0;
+    let mut busy_cpu = None;
+
+    for (id, cpu) in CPUS.iter().enumerate() {
+        let count = cpu.scheduler.lock().task_count().1;
+
+        if count > max {
+            max = count;
+            busy_cpu = Some(id);
+        }
+    }
+
+    Some((busy_cpu?, max))
+}
+
+/// Returns the CPU ID of the least busiest scheduler
+fn laziest_queue() -> Option<(usize, usize)> {
+    let mut min = usize::MAX;
+    let mut lazy_cpu = None;
+
+    for (id, cpu) in CPUS.iter().enumerate() {
+        let count = cpu.scheduler.lock().task_count().1;
+
+        if count == 0 { return Some((id, 0)) }
+        if count < min {
+            min = count;
+            lazy_cpu = Some(id);
+        }
+    }
+
+    Some((lazy_cpu?, min))
 }
 
 pub fn init() -> KResult<()> {
-    let stack = PhysPage::new(1)?;
-    let halt = Task::new_kernel(halt_task, stack);
-
-    task::IDLE_TASK.init(halt);
-    SCHEDULER.init(InterruptMutex::new(Scheduler::new()));
-
     // Register interrupt handler
     add_idt_entry(timer_handler, HardwareInterrupts::Timer.as_u8())?;
     // Unmask interrupt
@@ -40,11 +92,20 @@ pub fn init() -> KResult<()> {
 }
 
 pub fn kill_active_task(err_code: u64) {
-    SCHEDULER.lock().curr.state = TaskState::Terminate(err_code);
+    current_cpu().scheduler.lock().curr.state = TaskState::Terminate(err_code);
     yield_now();
 }
 
-pub fn add_task(task: Task) { SCHEDULER.lock().add_task(task) }
+/// Picks the most free cpu and gives it a new task
+pub fn add_task(task: Task) {
+    let cpuid = match laziest_queue() {
+        Some((cpu, _)) => cpu,
+        None => current_cpu().id as usize
+    };
+
+    CPUS[cpuid].scheduler.lock().add_task(task);
+}
+
 pub fn yield_now() { crate::acpi::trigger_interrupt(HardwareInterrupts::Timer) }
 
 #[unsafe(naked)]

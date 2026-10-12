@@ -88,15 +88,13 @@ pub fn init_timer(vector: u8, interval: Time) {
 }
 
 pub fn init_ap() {
-    let (frame, flags) = ApicBase::read();
+    let (frame, mut flags) = ApicBase::read();
 
-    if !flags.contains(ApicBaseFlags::LAPIC_ENABLE) {
-        // Safety: More MSR Writes
-        unsafe { ApicBase::write(frame, flags | ApicBaseFlags::LAPIC_ENABLE); }
-    }
+    flags |= ApicBaseFlags::LAPIC_ENABLE | ApicBaseFlags::X2APIC_ENABLE;
 
-    // Safety: Same as last
+    // Safety: Writes to MSRs. Safe
     unsafe {
+        ApicBase::write(frame, flags);
         Msr::new(X2APIC_SVR).write(0xFF | (1 << 8));
         Msr::new(X2APIC_ERROR_STATUS).write(0);
     }

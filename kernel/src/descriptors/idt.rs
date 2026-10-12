@@ -1,15 +1,12 @@
 #![allow(clippy::manual_assert)]
 
-use x86_64::PrivilegeLevel;
-use x86_64::{
-    VirtAddr,
-    registers::control::Cr2,
-    structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode}
-};
+use x86_64::{PrivilegeLevel, VirtAddr};
+use x86_64::registers::control::Cr2;
+use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 
-use crate::{InterruptMutex, KResult, helpers::LateInit, log_warn};
+use crate::{KResult, helpers::LateInit, log_warn};
 
-static IDT: InterruptMutex<LateInit<InterruptDescriptorTable>> = InterruptMutex::new(LateInit::new());
+pub static IDT: LateInit<InterruptDescriptorTable> = LateInit::new();
 
 pub fn init() {
     let mut idt = InterruptDescriptorTable::new();
@@ -28,7 +25,7 @@ pub fn init() {
     }
 
     // Safety: IDT always stays at the same addr and is never dropped. Safe.
-    unsafe { IDT.lock().init(idt).load_unsafe() };    
+    unsafe { IDT.init(idt).load_unsafe() };    
 }
 
 extern "x86-interrupt" fn double_fault(stack_frame: InterruptStackFrame, err_code: u64) -> ! {
@@ -91,15 +88,15 @@ pub enum HardwareInterrupts {
 }
 
 impl HardwareInterrupts {
-    pub const fn as_u8(self) -> u8 {
-        self as u8
-    }
+    pub const fn as_u8(self) -> u8 { self as u8 }
 }
 
 pub fn add_idt_entry(f: extern "x86-interrupt" fn(InterruptStackFrame), index: u8) -> KResult<()> {
-    let mut idt = IDT.lock();
-    if idt[index].handler_addr() != VirtAddr::zero() { return Err(crate::KernelError::IDTRegisterError(index)) }
+    let ptr = &raw const IDT as usize as *mut LateInit<InterruptDescriptorTable>;
+    // Safety: Dereference of a safe pointer. Safe
+    let reference = unsafe { &mut *ptr };
+    if reference[index].handler_addr() != VirtAddr::zero() { return Err(crate::KernelError::IDTRegisterError(index)) }
 
-    idt.get_mut()[index].set_handler_fn(f);
+    reference.get_mut()[index].set_handler_fn(f);
     Ok(())
 }

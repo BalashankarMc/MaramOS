@@ -20,9 +20,8 @@ mod mcfg;
 pub use mcfg::MCFGEntry;
 pub use hpet::passed_nanos;
 
-/// Initialize the Local APICs
-#[allow(unused_imports)]
 pub use apic::lapic::init_ap as lapic_init;
+pub use apic::lapic::init_timer_ap;
 
 /// Sends an EOI signal to the Local APICs
 pub use apic::lapic::eoi as lapic_eoi;

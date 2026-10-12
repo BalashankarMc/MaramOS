@@ -1,3 +1,7 @@
 kernel.elf
 disk.img
+
+mount/
+compiled/
 kernel/target
+xtask/target

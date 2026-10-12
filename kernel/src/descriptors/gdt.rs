@@ -1,23 +1,23 @@
-use x86_64::{VirtAddr, instructions::tables::load_tss, registers::segmentation::{CS, DS, ES, SS, Segment}, structures::{gdt::{Descriptor, GlobalDescriptorTable, SegmentSelector}, tss::TaskStateSegment}};
+use alloc::boxed::Box;
+use x86_64::registers::segmentation::{CS, DS, ES, SS, Segment};
+use x86_64::structures::gdt::{Descriptor, GlobalDescriptorTable, SegmentSelector};
+use x86_64::structures::tss::TaskStateSegment;
 
-use crate::{KResult, helpers::LateInit, memory::Stack};
+use crate::{KResult, memory::Stack};
 
 const GDT_SIZE: usize = 64;
 
-static GDT: LateInit<GlobalDescriptorTable<GDT_SIZE>> = LateInit::new();
-pub static SELECTORS: LateInit<Selectors> = LateInit::new();
-static TSS: LateInit<TaskStateSegment> = LateInit::new();
-
+#[derive(Debug, Clone, Copy)]
 pub struct Selectors {
     pub kernel_code: SegmentSelector,
     pub kernel_data: SegmentSelector,
     pub user_code: SegmentSelector,
     pub user_data: SegmentSelector,
-    tss: SegmentSelector
+    pub tss: SegmentSelector
 }
 
 impl Selectors {
-    fn load(&self) {
+    pub fn load(&self) {
         unsafe {
             CS::set_reg(self.kernel_code);
             DS::set_reg(self.kernel_data);
@@ -27,8 +27,11 @@ impl Selectors {
     }
 }
 
-pub fn init() -> KResult<()> {
-    let mut gdt = GlobalDescriptorTable::<GDT_SIZE>::empty();
+/// Initialize a GDT.
+/// 
+/// Safety: The return values must not be dropped
+pub unsafe fn new_gdt() -> KResult<(Box<GlobalDescriptorTable   <GDT_SIZE>>, Box<TaskStateSegment>, Selectors)> {
+    let mut gdt = Box::new(GlobalDescriptorTable::empty());
     let kernel_code = gdt.append(Descriptor::kernel_code_segment());
     let kernel_data = gdt.append(Descriptor::kernel_data_segment());
     let user_data = gdt.append(Descriptor::user_data_segment());
@@ -38,7 +41,7 @@ pub fn init() -> KResult<()> {
     let ist1_stack = Stack::new()?;
     let ist2_stack = Stack::new()?;
 
-    let mut tss = TaskStateSegment::new();
+    let mut tss = Box::new(TaskStateSegment::new());
     tss.interrupt_stack_table[0] = ist0_stack.top();
     tss.interrupt_stack_table[1] = ist1_stack.top();
     tss.interrupt_stack_table[2] = ist2_stack.top();
@@ -47,23 +50,8 @@ pub fn init() -> KResult<()> {
     ist1_stack.leak();
     ist2_stack.leak();
 
-    let tss_ref = TSS.init(tss);
-    let tss = gdt.append(Descriptor::tss_segment(tss_ref));
+    let tss_sel = unsafe { gdt.append(Descriptor::tss_segment_unchecked(&raw const *tss)) };
+    let selectors = Selectors { kernel_code, kernel_data, user_code, user_data, tss: tss_sel };    
 
-    GDT.init(gdt).load();
-
-    // Safety: We know that the provided TSS is safe.
-    unsafe { load_tss(tss) };
-
-    SELECTORS.init(Selectors { kernel_code, kernel_data, user_code, user_data, tss }).load();
-    Ok(())
-}
-
-// The TSS has no competing references, so, even though this is technically UB, it is safe
-#[allow(invalid_reference_casting)] // Intentional to update the RSP0
-pub fn update_rsp0(sp: VirtAddr) {
-    let addr = core::ptr::from_ref(TSS.get()) as usize as *mut TaskStateSegment;
-    // Safety: Deref of a safe pointer
-    let reference = unsafe { &mut *addr };
-    reference.privilege_stack_table[0] = sp;
+    Ok((gdt, tss, selectors))
 }

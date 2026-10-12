@@ -14,6 +14,13 @@ pub struct InterruptMutex<T>(Mutex<T>);
 
 unsafe impl<T: Send> Sync for InterruptMutex<T> {}
 
+impl<T: Clone> Clone for InterruptMutex<T> {
+    fn clone(&self) -> Self {
+        let t = (*self.lock()).clone();
+        Self::new(t)
+    }
+}
+
 /// An Interrupt-safe wrapper around a `Spin::MutexGuard`. Implements Drop and restores previous interrupt status on drop.
 #[derive(Debug)]
 pub struct InterruptGuard<'a, T>(ManuallyDrop<MutexGuard<'a, T>>, bool);

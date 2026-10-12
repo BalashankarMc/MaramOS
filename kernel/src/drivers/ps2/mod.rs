@@ -56,7 +56,7 @@ pub fn init() -> Result<(), PS2Error> {
 }
 
 fn write_command(cmd: u8) {
-    while read_status() & 2 != 0 { spin_loop() } // TODO: Add timeout here
+    while read_status() & 2 != 0 { spin_loop() }
     unsafe { CPORT.lock().write(cmd) }
 }
 

@@ -6,10 +6,10 @@ use x86_64::structures::paging::PageTableFlags;
 
 use crate::elf::LoadedBinary;
 use crate::memory::VirtualRegion;
-use crate::{KResult, LateInit, descriptors::SELECTORS, helpers::Time, memory::{PAGE_SIZE, PhysPage, Stack, VMemAllocator}};
+use crate::smp::current_cpu;
+use crate::{KResult, helpers::Time, memory::{PAGE_SIZE, PhysPage, Stack, VMemAllocator}};
 
 static ID: AtomicU64 = AtomicU64::new(0);
-pub static IDLE_TASK: LateInit<Task> = LateInit::new();
 
 const USER_STACK_PAGES: usize = 16;
 const USER_STACK_TOP: VirtAddr = VirtAddr::new(0x7FFF_FFFF_F000);
@@ -27,7 +27,8 @@ pub enum TaskType {
     User {
         address_space: Arc<(VMemAllocator, PhysPage)>,
         syscall_stack: Arc<Stack>,
-        priv_stack: Arc<Stack>
+        priv_stack: Arc<Stack>,
+        parent_id: u64
     }
 }
 
@@ -39,16 +40,13 @@ pub struct Task {
     pub stack: Arc<PhysPage>, // Use `PhysPage` for arbitrary size
     pub pages: Vec<Arc<PhysPage>>,
     pub entry: usize,
-    pub sp: usize,
-    pub parent: Option<Arc<Task>>
+    pub sp: usize
 }
 
 impl Task {
-    pub fn new_kernel(entry: fn(), stack: PhysPage) -> Self {
+    pub fn manual(entry: fn(), stack: PhysPage, cs: u16, ds: u16) -> Self {
         let entry = entry as *const () as usize;
         let rsp = stack.address().as_u64() + (stack.count * PAGE_SIZE) as u64;
-        let cs = SELECTORS.kernel_code.0;
-        let ds = SELECTORS.kernel_data.0;
 
         Self {
             id: next_id(),
@@ -58,13 +56,31 @@ impl Task {
             stack: Arc::new(stack),
             pages: Vec::new(),
             entry,
-            parent: None
         }
     }
 
-    pub fn new_user(entry: VirtAddr, rsp: VirtAddr, stack: PhysPage, address_space: (VMemAllocator, PhysPage)) -> KResult<Self> {
-        let cs = SELECTORS.user_code.0;
-        let ds = SELECTORS.user_data.0;
+    pub fn new_kernel(entry: fn(), stack: PhysPage) -> Self {
+        let entry = entry as *const () as usize;
+        let rsp = stack.address().as_u64() + (stack.count * PAGE_SIZE) as u64;
+        let selectors = &current_cpu().selectors;
+        let cs = selectors.kernel_code.0;
+        let ds = selectors.kernel_data.0;
+
+        Self {
+            id: next_id(),
+            state: TaskState::Ready,
+            type_: TaskType::Kernel,
+            sp: write_stack(&stack, entry as u64, rsp, cs, ds) + stack.address().as_u64() as usize,
+            stack: Arc::new(stack),
+            pages: Vec::new(),
+            entry,
+        }
+    }
+
+    pub fn new_user(entry: VirtAddr, rsp: VirtAddr, stack: PhysPage, address_space: (VMemAllocator, PhysPage), pid: u64) -> KResult<Self> {
+        let selectors = &current_cpu().selectors;
+        let cs = selectors.user_code.0;
+        let ds = selectors.user_data.0;
         let stack = Arc::new(stack);
         let sp = write_stack(&stack, entry.as_u64(), rsp.as_u64(), cs, ds) + stack.address().as_u64() as usize; 
 
@@ -74,7 +90,8 @@ impl Task {
             type_: TaskType::User {
                 address_space: Arc::new(address_space),
                 syscall_stack: Arc::new(Stack::new()?),
-                priv_stack: Arc::new(Stack::new()?)
+                priv_stack: Arc::new(Stack::new()?),
+                parent_id: pid,
             },
             sp,
             stack,
@@ -83,7 +100,7 @@ impl Task {
         })
     }
 
-    pub fn from_binary(mut bin: LoadedBinary) -> KResult<Self> {
+    pub fn from_binary(mut bin: LoadedBinary, parent_id: u64) -> KResult<Self> {
         let kstack = Stack::new()?;
         let ustack = PhysPage::new(USER_STACK_PAGES)?;
 
@@ -94,7 +111,7 @@ impl Task {
             PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE | PageTableFlags::USER_ACCESSIBLE
         )?;
 
-        let mut task = Self::new_user(bin.entry, USER_STACK_TOP, kstack.0, bin.address_space)?;
+        let mut task = Self::new_user(bin.entry, USER_STACK_TOP, kstack.0, bin.address_space, parent_id)?;
         task.pages.extend(bin.segments.into_iter().map(Arc::new));
         task.pages.push(Arc::new(ustack));
 
