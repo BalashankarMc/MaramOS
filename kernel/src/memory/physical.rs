@@ -1,12 +1,22 @@
 //! Physical Memory management
 
-use x86_64::{PhysAddr, VirtAddr, registers::control::Cr3, structures::paging::{PageSize, PageTable, PageTableFlags, Size1GiB, Size2MiB, page_table::PageTableEntry}};
+use x86_64::{
+    PhysAddr, VirtAddr,
+    registers::control::Cr3,
+    structures::paging::{PageSize, PageTable, PageTableFlags, Size1GiB, Size2MiB, page_table::PageTableEntry}
+};
 
 use crate::{MMAP_RESPONSE, allocators::BuddyAllocator, helpers::InterruptMutex, memory::{HHDM_OFFSET, PAGE_SIZE, phys_to_virt}};
 
 type Buddy = BuddyAllocator<12, 19, 64, true>;
 
+const PAGES_2MIB: usize = (Size2MiB::SIZE as usize) / PAGE_SIZE;
+const PAGES_1GIB: usize = (Size1GiB::SIZE as usize) / PAGE_SIZE;
+
 static ALLOCATOR: InterruptMutex<Buddy> = InterruptMutex::new(BuddyAllocator::new());
+
+/// Prevent multiple CPUs from modifying the HHDM mapping simultaneously
+static HHDM_LOCK: InterruptMutex<()> = InterruptMutex::new(());
 
 /// Initialize the physical page allocator
 pub fn init() {
@@ -92,9 +102,7 @@ pub fn get_pagetable(e: &PageTableEntry) -> &mut PageTable {
 }
 
 fn try_upgrade_hhdm(phys: PhysAddr, count: usize) {
-    // Note: HHDM PageTable entries are reserved by limine. Freeing them would corrupt the buddy allocator
-    const PAGES_2MIB: usize = (Size2MiB::SIZE as usize) / PAGE_SIZE; // 512
-    const PAGES_1GIB: usize = (Size1GiB::SIZE as usize) / PAGE_SIZE; // 262144
+    let _lock = HHDM_LOCK.lock();
 
     // Safety: Not a 'static. Safe
     let l4 = unsafe { active_l4_table() };
@@ -116,8 +124,17 @@ fn try_upgrade_hhdm(phys: PhysAddr, count: usize) {
         // Already a huge page, or not an L2 page-table frame.
         if l3_entry.is_unused() || l3_entry.flags().contains(PageTableFlags::HUGE_PAGE) { return }
 
+        let l2_frame = l3_entry.addr();
         l3_entry.set_addr(phys, flags);
-        x86_64::instructions::tlb::flush_all();
+
+        let l2 = unsafe { &mut *phys_to_virt(l2_frame).as_mut_ptr::<PageTable>() };
+        for e in l2.iter() {
+            if e.is_unused() || e.flags().contains(PageTableFlags::HUGE_PAGE) { continue }
+            free_frames(e.addr(), 1);
+        }
+
+        free_frames(l2_frame, 1);
+        crate::smp::ipi::tlb_shoot_all();        
 
     } else if count == PAGES_2MIB && phys.is_aligned(Size2MiB::SIZE) {
         let l3_entry = &l3[l3_index];
@@ -131,7 +148,10 @@ fn try_upgrade_hhdm(phys: PhysAddr, count: usize) {
         // Already a huge page — nothing to free.
         if l2_entry.is_unused() || l2_entry.flags().contains(PageTableFlags::HUGE_PAGE) { return }
 
+        let l1_frame = l2_entry.addr();
         l2_entry.set_addr(phys, flags);
-        x86_64::instructions::tlb::flush_all();
+        free_frames(l1_frame, 1);
+
+        crate::smp::ipi::tlb_shoot_all();
     }
 }

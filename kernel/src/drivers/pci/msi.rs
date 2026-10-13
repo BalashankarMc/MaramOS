@@ -30,7 +30,7 @@ pub fn program(dev: &PCIFunction, vector: HardwareInterrupts) -> Option<()> {
     let msg_data: u16 = vector as u16;
 
     // Write Message Address (low 32 bits).
-    dev.write_u32(cap + 4, msg_addr);
+    dev.write_u32(cap + 4, msg_addr as u32);
 
     if is_64bit {
         // Upper address — 0 for x86 (physical APIC address < 4 GiB).

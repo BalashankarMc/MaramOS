@@ -80,9 +80,10 @@ extern "x86-interrupt" fn machine_check(_stack_frame: InterruptStackFrame) -> ! 
     panic!("Machine Check!")
 }
 
+// No HardwareInterrupts vector should cross 0xFC. 0xFC is the MAX
 #[derive(Clone, Copy)]
 pub enum HardwareInterrupts {
-    Timer = 33,
+    Timer = 32,
     Keyboard,
     Ahci
 }

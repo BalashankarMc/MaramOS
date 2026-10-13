@@ -24,7 +24,7 @@ pub fn program(dev: &PCIFunction, region: &MMIORegion, entry_index: u16, vector:
     let table_offset = u64::from(table_reg & !0x7);
 
     let lapic_id = crate::acpi::lapic_id();
-    let msg_addr = 0xFEE0_0000 | (u64::from(lapic_id) << 12);
+    let msg_addr = 0xFEE0_0000 | (lapic_id << 12);
     let msg_data = vector as u32;
 
     let mut ctrl = dev.read_u16(cap + 2)?;

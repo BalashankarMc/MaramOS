@@ -1,4 +1,4 @@
-use core::sync::atomic::{AtomicU64, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use alloc::boxed::Box;
 use alloc::vec::Vec;
@@ -14,6 +14,7 @@ use crate::{InterruptMutex, KResult, LateInit, MP_RESPONSE};
 use crate::scheduling::{Scheduler, Task};
 
 mod init;
+pub mod ipi;
 
 pub static CPUS: LateInit<Vec<CPUData>> = LateInit::new();
 
@@ -26,7 +27,9 @@ pub struct CPUData {
     pub selectors: Selectors,
     pub scheduler: InterruptMutex<Scheduler>,
     pub idle: Task,
-    pub priv_stack: Stack
+    pub priv_stack: Stack,
+    pub ipi_ack: AtomicBool,
+    pub tlb_addresses: InterruptMutex<Vec<VirtAddr>>
 }
 
 static ONLINE_APS: AtomicU64 = AtomicU64::new(0);

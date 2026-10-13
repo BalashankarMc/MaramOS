@@ -45,9 +45,9 @@ pub fn eoi() {
     unsafe { Msr::new(X2APIC_EOI).write(0); }
 }
 
-pub fn id() -> u32 {
-    // Safety: Just another MSR write
-    unsafe { Msr::new(X2APIC_APICID).read() as u32 }
+pub fn id() -> u64 {
+    // Safety: Just an MSR read
+    unsafe { Msr::new(X2APIC_APICID).read() }
 }
 
 pub fn send_self_ipi(vector: u8) {

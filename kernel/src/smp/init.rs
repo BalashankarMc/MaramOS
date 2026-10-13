@@ -1,3 +1,5 @@
+use core::sync::atomic::AtomicBool;
+
 use alloc::vec::Vec;
 use limine::mp::MpInfo;
 use x86_64::VirtAddr;
@@ -42,7 +44,9 @@ pub fn init_bsp() -> KResult<()> {
         selectors,
         scheduler: InterruptMutex::new(Scheduler::new(idle.clone())),
         idle,
-        priv_stack
+        priv_stack,
+        ipi_ack: AtomicBool::new(false),
+        tlb_addresses: InterruptMutex::new(Vec::new())
     };
 
     // Unwrap: BSP must exist
@@ -68,7 +72,9 @@ pub fn init_bsp() -> KResult<()> {
             selectors,
             scheduler: InterruptMutex::new(Scheduler::new(idle.clone())),
             idle,
-            priv_stack
+            priv_stack,
+            ipi_ack: AtomicBool::new(false),
+            tlb_addresses: InterruptMutex::new(Vec::new())
         };
 
         res.push(info);
@@ -76,6 +82,7 @@ pub fn init_bsp() -> KResult<()> {
 
     CPUS.init(res);
 
+    super::ipi::init()?;
     GsBase::write(VirtAddr::from_ptr(&raw const CPUS[0]));
     Ok(())
 }

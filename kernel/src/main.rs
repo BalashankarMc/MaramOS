@@ -55,7 +55,7 @@ extern "C" fn kmain() -> ! {
     let bin = load(&mut fs, "/bin/init.elf".into()).expect("Failed to load binary: /bin/init.elf");
     let task = Task::from_binary(bin, 0).expect("Failed to make /bin/init.elf a task!");
     scheduling::add_task(task);
-
+    
     loop {
         if let Some(key) = drivers::ps2::KEYBOARD_BUFFER.lock().pop_front() {
             print!("{:?}", key.code);
@@ -73,5 +73,6 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
 
     println!("{}", info);
 
+    smp::ipi::halt_other_cpus();
     halt_loop()
 }

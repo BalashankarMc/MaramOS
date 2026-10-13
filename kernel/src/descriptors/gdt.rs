@@ -13,6 +13,7 @@ pub struct Selectors {
     pub kernel_data: SegmentSelector,
     pub user_code: SegmentSelector,
     pub user_data: SegmentSelector,
+    pub user_code_intel: SegmentSelector,
     pub tss: SegmentSelector
 }
 
@@ -30,12 +31,13 @@ impl Selectors {
 /// Initialize a GDT.
 /// 
 /// Safety: The return values must not be dropped
-pub unsafe fn new_gdt() -> KResult<(Box<GlobalDescriptorTable   <GDT_SIZE>>, Box<TaskStateSegment>, Selectors)> {
+pub unsafe fn new_gdt() -> KResult<(Box<GlobalDescriptorTable<GDT_SIZE>>, Box<TaskStateSegment>, Selectors)> {
     let mut gdt = Box::new(GlobalDescriptorTable::empty());
     let kernel_code = gdt.append(Descriptor::kernel_code_segment());
     let kernel_data = gdt.append(Descriptor::kernel_data_segment());
-    let user_data = gdt.append(Descriptor::user_data_segment());
     let user_code = gdt.append(Descriptor::user_code_segment());
+    let user_data = gdt.append(Descriptor::user_data_segment());
+    let user_code_intel = gdt.append(Descriptor::user_code_segment());
 
     let ist0_stack = Stack::new()?;
     let ist1_stack = Stack::new()?;
@@ -51,7 +53,7 @@ pub unsafe fn new_gdt() -> KResult<(Box<GlobalDescriptorTable   <GDT_SIZE>>, Box
     ist2_stack.leak();
 
     let tss_sel = unsafe { gdt.append(Descriptor::tss_segment_unchecked(&raw const *tss)) };
-    let selectors = Selectors { kernel_code, kernel_data, user_code, user_data, tss: tss_sel };    
+    let selectors = Selectors { kernel_code, kernel_data, user_code, user_data, user_code_intel, tss: tss_sel };    
 
     Ok((gdt, tss, selectors))
 }
