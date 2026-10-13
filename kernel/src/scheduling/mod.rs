@@ -17,7 +17,7 @@ mod scheduler;
 
 pub const TIMER_TICK: Time = Time::Milliseconds(100);
 
-pub fn idle_task() {
+pub fn idle_task() -> ! {
     loop {
         // Lock own scheuler
         let mut lock = current_cpu().scheduler.lock();
@@ -118,6 +118,8 @@ extern "x86-interrupt" fn timer_handler(_stack_frame: InterruptStackFrame) {
         "push r10", "push r11", "push r12",
         "push r13", "push r14", "push r15",
 
+        "call {eoi}",
+
         // Move RSP into arg 1
         "mov rdi, rsp",
         "sub rsp, 8", // Align to 16 bytes before calling functions
@@ -131,9 +133,6 @@ extern "x86-interrupt" fn timer_handler(_stack_frame: InterruptStackFrame) {
         "pop r9", "pop r8", "pop rbp",
         "pop rdi", "pop rsi", "pop rdx",
         "pop rcx", "pop rbx", "pop rax",
-
-        // Send EOI
-        "call {eoi}",
         
         "iretq",
 

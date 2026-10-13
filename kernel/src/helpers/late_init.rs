@@ -36,17 +36,18 @@ impl<T> LateInit<T> {
     /// # Panics
     /// Panics if the `LateInit` was already initialized
     pub fn init(&self, val: T) -> &T {
-        assert!(
-            self.init.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_ok(),
-            "LateInit::init called twice"
-        );
+        assert!(!self.init.load(Ordering::Acquire), "LateInit::init called twice!");
 
         let ptr = self.data.get();
 
-        unsafe {
+        let reference = unsafe {
             (*ptr).write(val);
             (*ptr).assume_init_ref()
-        }
+        };
+
+        self.init.store(true, Ordering::Release);
+
+        reference
     }
 
     /// Gets the value present in the `LateInit`

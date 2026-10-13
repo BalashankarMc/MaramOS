@@ -1,21 +1,26 @@
 use alloc::vec::Vec;
 use limine::mp::MpInfo;
+use x86_64::VirtAddr;
 use x86_64::instructions::tables::load_tss;
+use x86_64::registers::model_specific::GsBase;
 
 use crate::acpi::{init_timer_ap, lapic_init};
-use crate::memory::PhysPage;
+use crate::memory::{PhysPage, Stack};
 use crate::scheduling::{Scheduler, Task, idle_task};
-use crate::{InterruptMutex, KResult, MP_RESPONSE, halt_loop};
+use crate::{InterruptMutex, KResult, MP_RESPONSE};
 use crate::descriptors::{IDT, new_gdt};
 
-use super::{CPUData, CPUS, current_cpu};
+use super::{CPUData, CPUS};
 
 pub fn init_bsp() -> KResult<()> {
     let mut cpus = MP_RESPONSE.cpus().to_vec();
     let mut res = Vec::with_capacity(cpus.len());
 
     // Safety: The returned values never drop. Safe
-    let (gdt, tss, selectors) = unsafe { new_gdt()? };
+    let (gdt, mut tss, selectors) = unsafe { new_gdt()? };
+    let priv_stack = Stack::new()?;
+    tss.privilege_stack_table[0] = priv_stack.top();
+    
     let (cs, ds) = (selectors.kernel_code.0, selectors.kernel_data.0);
 
     unsafe {
@@ -28,7 +33,7 @@ pub fn init_bsp() -> KResult<()> {
     selectors.load();
     crate::descriptors::init();
 
-    let idle = Task::manual(idle_task, PhysPage::new(4)?, cs, ds);
+    let idle = Task::manual(|| idle_task(), PhysPage::new(4)?, cs, ds);
     let bsp_info = CPUData {
         id: 0,
         lapic_id: u64::from(MP_RESPONSE.bsp_lapic_id),
@@ -36,7 +41,8 @@ pub fn init_bsp() -> KResult<()> {
         tss,
         selectors,
         scheduler: InterruptMutex::new(Scheduler::new(idle.clone())),
-        idle
+        idle,
+        priv_stack
     };
 
     // Unwrap: BSP must exist
@@ -47,11 +53,13 @@ pub fn init_bsp() -> KResult<()> {
 
     for (id, cpu) in (1..).zip(cpus) {
         // Safety: The returned values never drop. Safe
-        let (gdt, tss, selectors) = unsafe { new_gdt()? };
+        let (gdt, mut tss, selectors) = unsafe { new_gdt()? };
+        let priv_stack = Stack::new()?;
+        tss.privilege_stack_table[0] = priv_stack.top();
 
         let (cs, ds) = (selectors.kernel_code.0, selectors.kernel_data.0);
 
-        let idle = Task::manual(idle_task, PhysPage::new(4)?, cs, ds);
+        let idle = Task::manual(|| idle_task(), PhysPage::new(4)?, cs, ds);
         let info = CPUData {
             id,
             lapic_id: u64::from(cpu.lapic_id),
@@ -59,23 +67,26 @@ pub fn init_bsp() -> KResult<()> {
             tss,
             selectors,
             scheduler: InterruptMutex::new(Scheduler::new(idle.clone())),
-            idle
+            idle,
+            priv_stack
         };
 
         res.push(info);
     }
 
     CPUS.init(res);
+
+    GsBase::write(VirtAddr::from_ptr(&raw const CPUS[0]));
     Ok(())
 }
 
-pub unsafe extern "C" fn ap_entry(_mp: &MpInfo) -> ! {
-    let ptr = core::ptr::from_ref(current_cpu()) as u64 as *mut CPUData;
+pub unsafe extern "C" fn ap_entry(mp: &MpInfo) -> ! {
+    let ptr = mp.extra_argument() as *mut CPUData;
+    GsBase::write(VirtAddr::from_ptr(ptr));
 
     // Safety: Dereference of a safe pointer. Safe
     // We need to cast &CPUData to &mut CPUData. This is safe
     // as a cpu will only write to it's own CPUData once at init.
-    #[allow(invalid_reference_casting)] 
     let data = unsafe { &mut *ptr };
 
     unsafe {
@@ -90,7 +101,10 @@ pub unsafe extern "C" fn ap_entry(_mp: &MpInfo) -> ! {
 
     lapic_init();
     init_timer_ap();
+
+    super::ONLINE_APS.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
+
     x86_64::instructions::interrupts::enable();
 
-    halt_loop()
+    idle_task();
 }

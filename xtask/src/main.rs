@@ -14,7 +14,8 @@ enum CLICommand {
     Build,
     Disk,
     Run,
-    Clean
+    Clean,
+    BuildRun
 }
 
 const ROOT: &str = env!("CARGO_MANIFEST_DIR");
@@ -42,7 +43,14 @@ fn main() -> Result<()> {
         CLICommand::Build => build(proj_root),
         CLICommand::Clean => clean(proj_root),
         CLICommand::Disk => disk(proj_root),
-        CLICommand::Run => run(proj_root)
+        CLICommand::Run => run(proj_root),
+
+        CLICommand::BuildRun => {
+            build(proj_root)?;
+            disk(proj_root)?;
+            run(proj_root)?;
+            Ok(())
+        }
     }
 }
 
@@ -159,6 +167,8 @@ fn disk(proj_root: &Path) -> Result<()> {
     let part_w_guid = format!("2:{LEMONFS_GUID}");
     sh("sgdisk", &["-n", "2:0:0", "-t", &part_w_guid, "-c", "2:LemonFS", &img], proj_root)?;
 
+    println!("Created partitions!");
+
     // Create mount point
     let mount_point = proj_root.join(MOUNT_DIR);
     if !mount_point.exists() { std::fs::create_dir(&mount_point)?; }
@@ -168,6 +178,7 @@ fn disk(proj_root: &Path) -> Result<()> {
         .current_dir(proj_root)
         .args([&img, MOUNT_DIR, "--format"])
         .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .spawn()?;
 
     compile(proj_root)?;
@@ -190,7 +201,7 @@ fn disk(proj_root: &Path) -> Result<()> {
     child.kill()?;
     sh("fusermount", &["-u", MOUNT_DIR], proj_root)?;
 
-    println!("Make disk.img!");
+    println!("Made disk.img!");
     Ok(())
 }
 
