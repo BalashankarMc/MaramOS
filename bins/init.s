@@ -1,7 +1,8 @@
 global _start
 
 _start:
-	nop
+	mov rax, 1
+	syscall
 
 loop:
 	nop

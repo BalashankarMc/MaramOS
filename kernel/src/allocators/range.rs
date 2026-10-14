@@ -43,6 +43,41 @@ impl RangeAllocator {
         self.coalesce();
     }
 
+    pub fn reserve(&mut self, start: usize, size: usize) -> bool {
+        let Some(end) = start.checked_add(size) else { return false };
+        if start == end { return true }
+
+        self.coalesce();
+
+        let mut cursor = start;
+        for range in &self.free {
+            let range_end = range.start + range.length;
+            if range_end <= cursor { continue }
+            if range.start > cursor { return false }
+
+            cursor = range_end;
+            if cursor >= end { break }
+        }
+        
+        if cursor < end { return false }
+        
+        let mut kept = Vec::with_capacity(self.free.len() + 1);
+        for range in self.free.drain(..) {
+            let range_end = range.start + range.length;
+            
+            if range_end <= start || range.start >= end { kept.push(range) }
+            else {
+                if range.start < start { kept.push(Range { start: range.start, length: start - range.start }) }
+                if range_end > end { kept.push(Range { start: end, length: range_end - end }) }
+            }
+        }
+
+        self.free = kept;
+        self.coalesce();
+
+        true
+    }
+
     fn coalesce(&mut self) {
         self.free.sort_by_key(|r| r.start);
 

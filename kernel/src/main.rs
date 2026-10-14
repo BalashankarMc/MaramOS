@@ -18,6 +18,7 @@ mod display;
 mod drivers;
 mod helpers;
 mod requests;
+mod syscalls;
 mod scheduling;
 mod allocators;
 mod descriptors;
@@ -52,7 +53,7 @@ extern "C" fn kmain() -> ! {
 
     log_success!("Kernel ready");
 
-    let bin = load(&mut fs, "/bin/init.elf".into()).expect("Failed to load binary: /bin/init.elf");
+    let bin = load(&mut *fs, "/bin/init.elf".into()).expect("Failed to load binary: /bin/init.elf");
     let task = Task::from_binary(bin, 0).expect("Failed to make /bin/init.elf a task!");
     scheduling::add_task(task);
     

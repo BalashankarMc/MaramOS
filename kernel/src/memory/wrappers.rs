@@ -50,6 +50,16 @@ impl PhysPage {
         Ok(())
     }
 
+    pub const fn as_byte_slice(&self) -> &[u8] {
+        // Safety: We satisfy all demands of `core::slice::from_raw_parts`. Safe
+        unsafe { core::slice::from_raw_parts(self.address().as_ptr::<u8>(), self.count * PAGE_SIZE) }
+    }
+
+    pub const fn as_byte_slice_mut(&mut self) -> &mut [u8] {
+        // Safety: We satisfy all demands of `core::slice::from_raw_parts_mut`. Safe
+        unsafe { core::slice::from_raw_parts_mut(self.address().as_mut_ptr::<u8>(), self.count * PAGE_SIZE) }
+    }
+
     /// Zero this page range
     pub fn zero(&self) {
         // We know this range is mapped. Safe

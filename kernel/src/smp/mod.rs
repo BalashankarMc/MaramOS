@@ -29,7 +29,8 @@ pub struct CPUData {
     pub idle: Task,
     pub priv_stack: Stack,
     pub ipi_ack: AtomicBool,
-    pub tlb_addresses: InterruptMutex<Vec<VirtAddr>>
+    pub tlb_addresses: InterruptMutex<Vec<VirtAddr>>,
+    pub syscall_stack: VirtAddr
 }
 
 static ONLINE_APS: AtomicU64 = AtomicU64::new(0);
@@ -64,6 +65,13 @@ pub fn set_rsp0(sp: VirtAddr) {
     // Safety: Dereference of a safe pointer. Safe
     let reference = unsafe { &mut *ptr };
     reference.tss.privilege_stack_table[0] = sp;
+}
+
+pub fn set_syscall_stack(sp: VirtAddr) {
+    let ptr = &raw const *current_cpu() as usize as *mut CPUData;
+
+    let reference = unsafe { &mut *ptr };
+    reference.syscall_stack = sp;
 }
 
 pub fn init() -> KResult<()> {

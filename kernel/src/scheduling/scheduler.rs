@@ -1,7 +1,7 @@
 use alloc::{collections::VecDeque, vec::Vec};
 use x86_64::{registers::control::{Cr3, Cr3Flags}, structures::paging::{PhysFrame, Size4KiB}};
 
-use crate::smp::{current_cpu, set_rsp0};
+use crate::smp::{current_cpu, set_rsp0, set_syscall_stack};
 use crate::{acpi::passed_nanos, memory::KERNEL_L4};
 
 use super::task::{Task, TaskState, TaskType};
@@ -102,7 +102,7 @@ pub extern "C" fn sched_logic(old_sp: usize) -> usize {
             unsafe { Cr3::write(*KERNEL_L4, Cr3Flags::empty()) };
         },
 
-        TaskType::User { address_space, syscall_stack: _, priv_stack, parent_id: _ } => {
+        TaskType::User { address_space, syscall_stack, priv_stack, parent_id: _ } => {
             // Swap to user L4
             let addr = address_space.0.l4();
             let frame = PhysFrame::<Size4KiB>::containing_address(addr);
@@ -112,6 +112,7 @@ pub extern "C" fn sched_logic(old_sp: usize) -> usize {
 
             // Update RSP0 to `priv_stack`
             set_rsp0(priv_stack.top());
+            set_syscall_stack(syscall_stack.top());
         }
     }
 

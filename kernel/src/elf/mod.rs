@@ -24,10 +24,17 @@ pub enum LoaderError {
     BadType,
     #[error("ELF File has no segments!")]
     NoSegments,
+    #[error("ELF has overlapping segments!")]
+    OverlappingSegments,
+    #[error("ELF has invalid segemts")]
+    BadSegments,
+
     #[error(transparent)]
     ParseError(#[from] elf::ParseError),
+
     #[error(transparent)]
     MemoryError(#[from] crate::memory::MemoryError),
+
     #[error(transparent)]
     IO(#[from] crate::fs::FSError)
 }

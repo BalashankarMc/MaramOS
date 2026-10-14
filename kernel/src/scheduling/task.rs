@@ -105,8 +105,10 @@ impl Task {
         let ustack = PhysPage::new(USER_STACK_PAGES)?;
 
         let size = (USER_STACK_PAGES * PAGE_SIZE) as u64;
-        bin.address_space.0.map(
-            &VirtualRegion { start: USER_STACK_TOP - size, size },
+        let region = VirtualRegion { start: USER_STACK_TOP - size, size };
+
+        bin.address_space.0.map_fixed(
+            region,
             ustack.phys(),
             PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE | PageTableFlags::USER_ACCESSIBLE
         )?;

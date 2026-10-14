@@ -9,7 +9,7 @@ use x86_64::registers::model_specific::GsBase;
 use crate::acpi::{init_timer_ap, lapic_init};
 use crate::memory::{PhysPage, Stack};
 use crate::scheduling::{Scheduler, Task, idle_task};
-use crate::{InterruptMutex, KResult, MP_RESPONSE};
+use crate::{InterruptMutex, KResult, MP_RESPONSE, syscalls};
 use crate::descriptors::{IDT, new_gdt};
 
 use super::{CPUData, CPUS};
@@ -36,6 +36,7 @@ pub fn init_bsp() -> KResult<()> {
     crate::descriptors::init();
 
     let idle = Task::manual(|| idle_task(), PhysPage::new(4)?, cs, ds);
+
     let bsp_info = CPUData {
         id: 0,
         lapic_id: u64::from(MP_RESPONSE.bsp_lapic_id),
@@ -46,7 +47,8 @@ pub fn init_bsp() -> KResult<()> {
         idle,
         priv_stack,
         ipi_ack: AtomicBool::new(false),
-        tlb_addresses: InterruptMutex::new(Vec::new())
+        tlb_addresses: InterruptMutex::new(Vec::new()),
+        syscall_stack: VirtAddr::zero()
     };
 
     // Unwrap: BSP must exist
@@ -62,8 +64,8 @@ pub fn init_bsp() -> KResult<()> {
         tss.privilege_stack_table[0] = priv_stack.top();
 
         let (cs, ds) = (selectors.kernel_code.0, selectors.kernel_data.0);
-
         let idle = Task::manual(|| idle_task(), PhysPage::new(4)?, cs, ds);
+
         let info = CPUData {
             id,
             lapic_id: u64::from(cpu.lapic_id),
@@ -74,7 +76,8 @@ pub fn init_bsp() -> KResult<()> {
             idle,
             priv_stack,
             ipi_ack: AtomicBool::new(false),
-            tlb_addresses: InterruptMutex::new(Vec::new())
+            tlb_addresses: InterruptMutex::new(Vec::new()),
+            syscall_stack: VirtAddr::zero()
         };
 
         res.push(info);
@@ -84,6 +87,8 @@ pub fn init_bsp() -> KResult<()> {
 
     super::ipi::init()?;
     GsBase::write(VirtAddr::from_ptr(&raw const CPUS[0]));
+    syscalls::init();
+
     Ok(())
 }
 
@@ -108,6 +113,7 @@ pub unsafe extern "C" fn ap_entry(mp: &MpInfo) -> ! {
 
     lapic_init();
     init_timer_ap();
+    syscalls::init();
 
     super::ONLINE_APS.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
 

@@ -5,7 +5,7 @@ use x86_64::{PhysAddr, VirtAddr, registers::control::Cr3, structures::paging::{F
 
 use crate::{InterruptMutex, LateInit, allocators::RangeAllocator};
 
-use super::{HHDM_OFFSET, MemoryError, phys_to_virt, physical::{alloc_pages, free_frames}, virt_to_phys};
+use super::{HHDM_OFFSET, MemoryError, PAGE_SIZE, phys_to_virt, physical::{alloc_pages, free_frames}, virt_to_phys};
 
 const SIZE_L1: u64 = 1 << 12; // 4 KiB
 const SIZE_L2: u64 = 1 << 21; // 2 MiB
@@ -199,7 +199,7 @@ impl VMemAllocator {
     }
 
     pub fn alloc(&mut self, count: usize) -> Option<VirtualRegion> {
-        if count == 0 { return None; }
+        if count == 0 { return None }
 
         let align = if count.is_multiple_of(0x40_000) { Size1GiB::SIZE as usize }
             else if count.is_multiple_of(0x200) { Size2MiB::SIZE as usize }
@@ -209,6 +209,25 @@ impl VMemAllocator {
         let start = self.allocator.allocate(size_bytes, align)?;
 
         Some(VirtualRegion { start: VirtAddr::new(start as u64), size: size_bytes as u64 })
+    }
+
+    pub fn reserve(&mut self, region: &VirtualRegion) -> Result<(), MemoryError> {
+        if !region.size.is_multiple_of(PAGE_SIZE as u64) { return Err(MemoryError::InvalidMapping) }
+        if !region.start.is_aligned(PAGE_SIZE as u64) { return Err(MemoryError::InvalidMapping) }
+
+        if self.allocator.reserve(region.start.as_u64() as usize, region.size as usize) { return Ok(()) }
+
+        Err(MemoryError::InvalidMapping)
+    }
+
+    pub fn map_fixed(&mut self, region: VirtualRegion, phys: PhysAddr, flags: PageTableFlags) -> Result<(), MemoryError> {
+        self.reserve(&region)?;
+        if let Err(e) = self.map(&region, phys, flags) {
+            self.free(region)?;
+            return Err(e);    
+        }
+
+        Ok(())
     }
 
     #[allow(clippy::needless_pass_by_value)] // Consume the `VirtualRegion` so it cannot be used again
@@ -226,6 +245,30 @@ impl VMemAllocator {
         unsafe { virt_to_phys(virt) }
     }
 
+}
+
+impl Drop for VMemAllocator {
+    fn drop(&mut self) {
+        for l4e in self.page_table.iter().take(256) {
+            if !l4e.flags().contains(PageTableFlags::PRESENT) { continue }
+
+            let l3 = unsafe { get_pagetable(l4e) };
+            for l3e in l3.iter() {
+                if !l3e.flags().contains(PageTableFlags::PRESENT)
+                    || l3e.flags().contains(PageTableFlags::HUGE_PAGE) { continue }
+
+                let l2 = unsafe { get_pagetable(l3e) };
+                for l2e in l2.iter() {
+                    if !l2e.flags().contains(PageTableFlags::PRESENT)
+                        || l2e.flags().contains(PageTableFlags::HUGE_PAGE) { continue }
+
+                    free_frames(l2e.addr(), 1);
+                }
+                free_frames(l3e.addr(), 1);
+            }
+            free_frames(l4e.addr(), 1);
+        }
+    }
 }
 
 /// Find free Entries for an L4 Table
